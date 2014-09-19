@@ -1,0 +1,30 @@
+#!/bin/sh
+
+LED_PATH="/sys/bus/i2c/devices/1-0007"
+
+echo 02020202020202020202020202020202 > ${LED_PATH}/led_state
+echo 000100200300400500600700800900a00b00c00d00e00f00 > ${LED_PATH}/led_brightness
+sleep 3
+
+echo 0ff100200300400500600700800900a00b00c00d00e00f00 > ${LED_PATH}/led_brightness
+sleep 3
+
+echo 0001ff200300400500600700800900a00b00c00d00e00f00 > ${LED_PATH}/led_brightness
+sleep 3
+
+echo 0001002ff300400500600700800900a00b00c00d00e00f00 > ${LED_PATH}/led_brightness
+sleep 3
+
+echo 0ff1002ff300400500600700800900a00b00c00d00e00f00 > ${LED_PATH}/led_brightness
+sleep 3
+
+echo 0ff1ff200300400500600700800900a00b00c00d00e00f00 > ${LED_PATH}/led_brightness
+sleep 3
+
+echo 0001ff2ff300400500600700800900a00b00c00d00e00f00 > ${LED_PATH}/led_brightness
+sleep 3
+
+echo 0ff1ff2ff3ff4ff5ff6ff7ff8ff9ffaffbffcffdffefffff > ${LED_PATH}/led_brightness
+sleep 3
+
+echo 000100200300400500600700800900a00b00c00d00e00f00 > ${LED_PATH}/led_brightness
