@@ -1,0 +1,196 @@
+--- ../linux_koalo/sound/soc/bcm2708/rpi-mbed.c	2014-08-11 16:36:48.249568953 +1000
++++ sound/soc/bcm/rpi-mbed.c	2014-08-25 14:05:14.427528510 +1000
+@@ -12,6 +12,7 @@
+ 
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
++#include <linux/io.h>
+ 
+ #include <sound/core.h>
+ #include <sound/pcm.h>
+@@ -20,8 +21,160 @@
+ 
+ #include "../codecs/tlv320aic23.h"
+ 
++#define MBED_CODEC_MCLK			12288000
++
++/* GP Clock pin */
++#define BCM2708_GPCLK0_GPIO_PIN4	4
++#define BCM2708_GPCLK0_GPIO_PIN4_ALT	0
++
++/* GP Clock registers */
++#define BCM2708_GPCLK_CTL_REG  (0x70/4)
++#define BCM2708_GPCLK_DIV_REG  (0x74/4)
++
++/* Clock register settings */
++#define BCM2708_CLK_PASSWD		(0x5a000000)
++#define BCM2708_CLK_PASSWD_MASK		(0xff000000)
++#define BCM2708_CLK_MASH(v)		((v) << 9)
++#define BCM2708_CLK_FLIP		BIT(8)
++#define BCM2708_CLK_BUSY		BIT(7)
++#define BCM2708_CLK_KILL		BIT(5)
++#define BCM2708_CLK_ENAB		BIT(4)
++#define BCM2708_CLK_SRC(v)		(v)
++
++#define BCM2708_CLK_SHIFT		(12)
++#define BCM2708_CLK_DIVI(v)		((v) << BCM2708_CLK_SHIFT)
++#define BCM2708_CLK_DIVF(v)		(v)
++#define BCM2708_CLK_DIVF_MASK		(0xFFF)
++
++enum {
++	BCM2708_CLK_MASH_0 = 0,
++	BCM2708_CLK_MASH_1,
++	BCM2708_CLK_MASH_2,
++	BCM2708_CLK_MASH_3,
++};
++
++enum {
++	BCM2708_CLK_SRC_GND = 0,
++	BCM2708_CLK_SRC_OSC,
++	BCM2708_CLK_SRC_DBG0,
++	BCM2708_CLK_SRC_DBG1,
++	BCM2708_CLK_SRC_PLLA,
++	BCM2708_CLK_SRC_PLLC,
++	BCM2708_CLK_SRC_PLLD,
++	BCM2708_CLK_SRC_HDMI,
++};
++
++/* Most clocks are not useable (freq = 0) */
++static const unsigned int bcm2708_clk_freq[BCM2708_CLK_SRC_HDMI+1] = {
++	[BCM2708_CLK_SRC_GND]		= 0,
++	[BCM2708_CLK_SRC_OSC]		= 19200000,
++	[BCM2708_CLK_SRC_DBG0]		= 0,
++	[BCM2708_CLK_SRC_DBG1]		= 0,
++	[BCM2708_CLK_SRC_PLLA]		= 0,
++	[BCM2708_CLK_SRC_PLLC]		= 0,
++	[BCM2708_CLK_SRC_PLLD]		= 500000000,
++	[BCM2708_CLK_SRC_HDMI]		= 0,
++};
++
++static void snd_rpi_mbed_setup_gpio(void)
++{
++	/*
++	 * This is the common way to handle the GPIO pins for
++	 * the Raspberry Pi.
++	 * TODO Better way would be to handle
++	 * this in the device tree!
++	 */
++#define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
++#define SET_GPIO_ALT(g,a) *(gpio+(((g)/10))) |= (((a)<=3?(a)+4:(a)==4?3:2)<<(((g)%10)*3))
++
++	unsigned int *gpio;
++	int pin,alt;
++
++	gpio = ioremap(GPIO_BASE, SZ_16K);
++
++	pin=BCM2708_GPCLK0_GPIO_PIN4;
++	alt=BCM2708_GPCLK0_GPIO_PIN4_ALT;
++
++	/* configure GPCLK0 pin to correct ALT mode */
++	INP_GPIO(pin);		/* set mode to GPIO input first */
++	SET_GPIO_ALT(pin, alt);	/* set mode to ALT  */
++
++#undef INP_GPIO
++#undef SET_GPIO_ALT
++}
++
++#define GP_CLK0_CTL *(clk_map + BCM2708_GPCLK_CTL_REG)
++#define GP_CLK0_DIV *(clk_map + BCM2708_GPCLK_DIV_REG)
++
++static void snd_rpi_mbed_start_gpclk(unsigned int *clk_map)
++{
++	unsigned int tmp;
++
++	tmp = GP_CLK0_CTL;
++	tmp &= ~(BCM2708_CLK_PASSWD_MASK | BCM2708_CLK_ENAB);
++	tmp |= (BCM2708_CLK_PASSWD | BCM2708_CLK_ENAB);
++	GP_CLK0_CTL = tmp;
++}
++
++static void snd_rpi_mbed_stop_gpclk(unsigned int *clk_map)
++{
++	int timeout = 1000;
++	unsigned int tmp;
++
++	/* Stop clock */
++	tmp = GP_CLK0_CTL;
++	tmp &= ~(BCM2708_CLK_PASSWD_MASK | BCM2708_CLK_ENAB);
++	tmp |= BCM2708_CLK_PASSWD;
++	GP_CLK0_CTL = tmp;
++
++	/* Wait for the BUSY flag going down */
++	while (--timeout) {
++		if (!(GP_CLK0_DIV & BCM2708_CLK_BUSY))
++			break;
++	}
++
++	if (!timeout) {
++		/* KILL the clock */
++		tmp = GP_CLK0_CTL;
++		tmp &= ~(BCM2708_CLK_KILL | BCM2708_CLK_PASSWD_MASK);
++		tmp |= (BCM2708_CLK_KILL | BCM2708_CLK_PASSWD);
++		GP_CLK0_CTL = tmp;
++	}
++}
++
++static void snd_rpi_mbed_setup_gpclk(void)
++{
++	unsigned int mash = BCM2708_CLK_MASH_1;
++	unsigned int divi, divf, target_frequency;
++	int clk_src = BCM2708_CLK_SRC_PLLD;
++	unsigned int *clk_map;
++	uint64_t dividend;
++
++	clk_map = ioremap(GPCLK_BASE, SZ_4K);
++
++	snd_rpi_mbed_stop_gpclk(clk_map);
++
++	target_frequency = MBED_CODEC_MCLK;
++
++	dividend = bcm2708_clk_freq[clk_src];
++	dividend <<= BCM2708_CLK_SHIFT;
++	do_div(dividend, target_frequency);
++	divi = dividend >> BCM2708_CLK_SHIFT;
++	divf = dividend & BCM2708_CLK_DIVF_MASK;
++
++	/* Set clock divider */
++	GP_CLK0_DIV = BCM2708_CLK_PASSWD | BCM2708_CLK_DIVI(divi) | BCM2708_CLK_DIVF(divf);
++
++	/* Setup clock, but don't start it yet */
++	GP_CLK0_CTL = BCM2708_CLK_PASSWD | BCM2708_CLK_MASH(mash) | BCM2708_CLK_SRC(clk_src);
++
++	snd_rpi_mbed_start_gpclk(clk_map);
++}
++
+ static int snd_rpi_mbed_init(struct snd_soc_pcm_runtime *rtd)
+ {
++	snd_rpi_mbed_setup_gpclk();
++	snd_rpi_mbed_setup_gpio();
+ 	return 0;
+ }
+ 
+@@ -32,11 +185,14 @@ static int snd_rpi_mbed_hw_params(struct
+ 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
+ 	int sysclk;
+ 
+-	sysclk = 12000000; /* this is fixed on this board */
++	sysclk = MBED_CODEC_MCLK; /* this is clocked by GPCLK0 */
+ 
+ 	/* set tlv320aic23 sysclk */
+ 	snd_soc_dai_set_sysclk(codec_dai, 0, sysclk, 0);
+ 
++	/* configure tlv320aic23 i2s mode */
++	snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_MASTER_MASK | SND_SOC_DAIFMT_FORMAT_MASK);
++
+ 	return 0;
+ }
+ 
+@@ -51,7 +207,7 @@ static struct snd_soc_dai_link snd_rpi_m
+ 	.stream_name	= "TLV320AIC23 HiFi",
+ 	.cpu_dai_name	= "bcm2708-i2s.0",
+ 	.codec_dai_name	= "tlv320aic23-hifi",
+-	.platform_name	= "bcm2708-pcm-audio.0",
++	.platform_name	= "bcm2708-i2s.0",
+ 	.codec_name	= "tlv320aic23-codec.1-001b",
+ 	.dai_fmt	= SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
+ 				SND_SOC_DAIFMT_CBS_CFS,

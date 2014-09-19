@@ -1,0 +1,453 @@
+commit 37bf47fec503c760556d0f6da848849d7e7bf734
+Author: Joo Aun Saw <jasaw@dius.com.au>
+Date:   Fri Sep 19 16:49:09 2014 +1000
+
+    Add rpi-mbed audio codec support with GPCLK0 patch.
+
+diff --git a/arch/arm/mach-bcm2708/bcm2708.c b/arch/arm/mach-bcm2708/bcm2708.c
+index 85bd84f..02fd5ff 100644
+--- a/arch/arm/mach-bcm2708/bcm2708.c
++++ b/arch/arm/mach-bcm2708/bcm2708.c
+@@ -637,6 +637,38 @@ static struct platform_device bcm2708_i2s_device = {
+ };
+ #endif
+ 
++#ifdef CONFIG_SND_BCM2708_SOC_RPI_CODEC_MBED_MODULE
++static struct platform_device snd_rpi_mbed_device = {
++	.name = "snd-rpi-mbed",
++	.id = 0,
++	.num_resources = 0,
++};
++
++static struct i2c_board_info __initdata snd_rpi_mbed_i2c_devices[] = {
++	{
++		// LED driver
++		I2C_BOARD_INFO("pca9635", 0x07),
++	},
++        {
++                I2C_BOARD_INFO("tlv320aic23", 0x1b)
++        },
++};
++#endif
++
++#ifdef CONFIG_SND_BCM2708_SOC_RPI_CODEC_TDA1541A_MODULE
++static struct platform_device snd_rpi_tda1541a_device = {
++	.name = "snd-rpi-tda1541a",
++	.id = 0,
++	.num_resources = 0,
++};
++
++static struct platform_device snd_rpi_tda1541a_codec_device = {
++	.name = "tda1541a-codec",
++	.id = -1,
++	.num_resources = 0,
++};
++#endif
++
+ #if defined(CONFIG_SND_BCM2708_SOC_HIFIBERRY_DAC) || defined(CONFIG_SND_BCM2708_SOC_HIFIBERRY_DAC_MODULE)
+ static struct platform_device snd_hifiberry_dac_device = {
+         .name = "snd-hifiberry-dac",
+@@ -837,6 +869,11 @@ void __init bcm2708_init(void)
+ 	bcm_register_device(&bcm2708_i2s_device);
+ #endif
+ 
++#ifdef CONFIG_SND_BCM2708_SOC_RPI_CODEC_MBED_MODULE
++	bcm_register_device(&snd_rpi_mbed_device);
++	i2c_register_board_info(1, snd_rpi_mbed_i2c_devices, ARRAY_SIZE(snd_rpi_mbed_i2c_devices));
++#endif
++
+ #if defined(CONFIG_SND_BCM2708_SOC_HIFIBERRY_DAC) || defined(CONFIG_SND_BCM2708_SOC_HIFIBERRY_DAC_MODULE)
+         bcm_register_device(&snd_hifiberry_dac_device);
+         bcm_register_device(&snd_pcm5102a_codec_device);
+diff --git a/arch/arm/mach-bcm2708/include/mach/platform.h b/arch/arm/mach-bcm2708/include/mach/platform.h
+index 2e7e1bb..2921485 100644
+--- a/arch/arm/mach-bcm2708/include/mach/platform.h
++++ b/arch/arm/mach-bcm2708/include/mach/platform.h
+@@ -62,6 +62,7 @@
+ #define DMA_BASE		 (BCM2708_PERI_BASE + 0x7000)	/* DMA controller */
+ #define ARM_BASE                 (BCM2708_PERI_BASE + 0xB000)	 /* BCM2708 ARM control block */
+ #define PM_BASE			 (BCM2708_PERI_BASE + 0x100000) /* Power Management, Reset controller and Watchdog registers */
++#define GPCLK_BASE               (BCM2708_PERI_BASE + 0x101000) /* General Purpose Clock */
+ #define PCM_CLOCK_BASE           (BCM2708_PERI_BASE + 0x101098) /* PCM Clock */
+ #define RNG_BASE                 (BCM2708_PERI_BASE + 0x104000) /* Hardware RNG */
+ #define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) /* GPIO */
+diff --git a/sound/soc/bcm/Kconfig b/sound/soc/bcm/Kconfig
+index 073035b..2c1f1f2 100644
+--- a/sound/soc/bcm/Kconfig
++++ b/sound/soc/bcm/Kconfig
+@@ -9,6 +9,13 @@ config SND_BCM2708_SOC_I2S
+ 	  the BCM2708 I2S interface. You will also need
+ 	  to select the audio interfaces to support below.
+ 
++config SND_BCM2708_SOC_RPI_CODEC_MBED
++        tristate "Support mbed AudioCODEC (TLV320AIC23B)"
++        depends on SND_BCM2708_SOC_I2S
++        select SND_SOC_TLV320AIC23
++        help
++         Say Y or M if you want to add support for mbed AudioCODEC (TLV320AIC23B).
++
+ config SND_BCM2708_SOC_HIFIBERRY_DAC
+         tristate "Support for HifiBerry DAC"
+         depends on SND_BCM2708_SOC_I2S
+diff --git a/sound/soc/bcm/Makefile b/sound/soc/bcm/Makefile
+index b871541..a791285 100644
+--- a/sound/soc/bcm/Makefile
++++ b/sound/soc/bcm/Makefile
+@@ -4,12 +4,14 @@ snd-soc-bcm2708-i2s-objs := bcm2708-i2s.o
+ obj-$(CONFIG_SND_BCM2708_SOC_I2S) += snd-soc-bcm2708-i2s.o
+ 
+ # BCM2708 Machine Support
++snd-soc-rpi-mbed-objs := rpi-mbed.o
+ snd-soc-hifiberry-dac-objs := hifiberry_dac.o
+ snd-soc-hifiberry-dacplus-objs := hifiberry_dacplus.o
+ snd-soc-hifiberry-digi-objs := hifiberry_digi.o
+ snd-soc-rpi-dac-objs := rpi-dac.o
+ snd-soc-iqaudio-dac-objs := iqaudio-dac.o
+ 
++obj-$(CONFIG_SND_BCM2708_SOC_RPI_CODEC_MBED) += snd-soc-rpi-mbed.o
+ obj-$(CONFIG_SND_BCM2708_SOC_HIFIBERRY_DAC) += snd-soc-hifiberry-dac.o
+ obj-$(CONFIG_SND_BCM2708_SOC_HIFIBERRY_DACPLUS) += snd-soc-hifiberry-dacplus.o
+ obj-$(CONFIG_SND_BCM2708_SOC_HIFIBERRY_DIGI) += snd-soc-hifiberry-digi.o
+diff --git a/sound/soc/bcm/bcm2708-i2s.c b/sound/soc/bcm/bcm2708-i2s.c
+index 905f076..c08c5a8 100644
+--- a/sound/soc/bcm/bcm2708-i2s.c
++++ b/sound/soc/bcm/bcm2708-i2s.c
+@@ -50,6 +50,13 @@
+ 
+ #include <asm/system_info.h>
+ 
++#define BCM2708_I2S_SYNC_TO_GPCLK0
++
++#ifdef BCM2708_I2S_SYNC_TO_GPCLK0
++#define BCM2708_GPCLK_CTL_REG		(0x70/4)
++#define BCM2708_GPCLK_DIV_REG		(0x74/4)
++#endif
++
+ /* Clock registers */
+ #define BCM2708_CLK_PCMCTL_REG  0x00
+ #define BCM2708_CLK_PCMDIV_REG  0x04
+@@ -66,6 +73,7 @@
+ 
+ #define BCM2708_CLK_SHIFT		(12)
+ #define BCM2708_CLK_DIVI(v)		((v) << BCM2708_CLK_SHIFT)
++#define BCM2708_CLK_DIVI_MASK		(0xFFF000)
+ #define BCM2708_CLK_DIVF(v)		(v)
+ #define BCM2708_CLK_DIVF_MASK		(0xFFF)
+ 
+@@ -454,6 +462,43 @@ static int bcm2708_i2s_hw_params(struct snd_pcm_substream *substream,
+ 	clk_src = BCM2708_CLK_SRC_OSC;
+ 	mash = BCM2708_CLK_MASH_0;
+ 
++#ifdef BCM2708_I2S_SYNC_TO_GPCLK0
++	{
++		unsigned int *gpclk_map;
++		uint64_t gpclk_dividend;
++		uint64_t i2s_dividend;
++
++		(void)frame_master;
++		(void)bit_master;
++
++		if (!dev->bclk_ratio) {
++			/*
++			 * Overwrite bclk_ratio, because the
++			 * above trick is not needed or can
++			 * not be used.
++			 */
++			bclk_ratio = 2 * data_length;
++		}
++
++		target_frequency = sampling_rate * bclk_ratio;
++
++		clk_src = BCM2708_CLK_SRC_PLLD;
++		mash = BCM2708_CLK_MASH_1;
++
++		i2s_dividend = bcm2708_clk_freq[clk_src];
++		i2s_dividend <<= BCM2708_CLK_SHIFT;
++		do_div(i2s_dividend, target_frequency);
++
++		/* Work out an interger ratio so both clocks are in sync */
++		gpclk_map = ioremap(GPCLK_BASE, SZ_4K);
++		gpclk_dividend = *(gpclk_map + BCM2708_GPCLK_DIV_REG);
++		i2s_dividend += (gpclk_dividend >> 1);
++		do_div(i2s_dividend, gpclk_dividend);
++		i2s_dividend *= gpclk_dividend;
++		divi = i2s_dividend >> BCM2708_CLK_SHIFT;
++		divf = i2s_dividend & BCM2708_CLK_DIVF_MASK;
++	}
++#else
+ 	if (bcm2708_clk_freq[clk_src] % target_frequency == 0
+ 			&& bit_master && frame_master) {
+ 		divi = bcm2708_clk_freq[clk_src] / target_frequency;
+@@ -481,6 +526,7 @@ static int bcm2708_i2s_hw_params(struct snd_pcm_substream *substream,
+ 		divi = dividend >> BCM2708_CLK_SHIFT;
+ 		divf = dividend & BCM2708_CLK_DIVF_MASK;
+ 	}
++#endif
+ 
+ 	/* Set clock divider */
+ 	regmap_write(dev->clk_regmap, BCM2708_CLK_PCMDIV_REG, BCM2708_CLK_PASSWD
+diff --git a/sound/soc/bcm/rpi-mbed.c b/sound/soc/bcm/rpi-mbed.c
+new file mode 100644
+index 0000000..3f84403
+--- /dev/null
++++ b/sound/soc/bcm/rpi-mbed.c
+@@ -0,0 +1,259 @@
++/*
++ * ASoC driver for mbed AudioCODEC (with a TLV320AIC23b)
++ * connected to a Raspberry Pi
++ *
++ * Author:      Florian Meier, <koalo@koalo.de>
++ *	      Copyright 2013
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ */
++
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/io.h>
++
++#include <sound/core.h>
++#include <sound/pcm.h>
++#include <sound/soc.h>
++#include <sound/jack.h>
++
++#include "../codecs/tlv320aic23.h"
++
++#define MBED_CODEC_MCLK			12288000
++
++/* GP Clock pin */
++#define BCM2708_GPCLK0_GPIO_PIN4	4
++#define BCM2708_GPCLK0_GPIO_PIN4_ALT	0
++
++/* GP Clock registers */
++#define BCM2708_GPCLK_CTL_REG  (0x70/4)
++#define BCM2708_GPCLK_DIV_REG  (0x74/4)
++
++/* Clock register settings */
++#define BCM2708_CLK_PASSWD		(0x5a000000)
++#define BCM2708_CLK_PASSWD_MASK		(0xff000000)
++#define BCM2708_CLK_MASH(v)		((v) << 9)
++#define BCM2708_CLK_FLIP		BIT(8)
++#define BCM2708_CLK_BUSY		BIT(7)
++#define BCM2708_CLK_KILL		BIT(5)
++#define BCM2708_CLK_ENAB		BIT(4)
++#define BCM2708_CLK_SRC(v)		(v)
++
++#define BCM2708_CLK_SHIFT		(12)
++#define BCM2708_CLK_DIVI(v)		((v) << BCM2708_CLK_SHIFT)
++#define BCM2708_CLK_DIVF(v)		(v)
++#define BCM2708_CLK_DIVF_MASK		(0xFFF)
++
++enum {
++	BCM2708_CLK_MASH_0 = 0,
++	BCM2708_CLK_MASH_1,
++	BCM2708_CLK_MASH_2,
++	BCM2708_CLK_MASH_3,
++};
++
++enum {
++	BCM2708_CLK_SRC_GND = 0,
++	BCM2708_CLK_SRC_OSC,
++	BCM2708_CLK_SRC_DBG0,
++	BCM2708_CLK_SRC_DBG1,
++	BCM2708_CLK_SRC_PLLA,
++	BCM2708_CLK_SRC_PLLC,
++	BCM2708_CLK_SRC_PLLD,
++	BCM2708_CLK_SRC_HDMI,
++};
++
++/* Most clocks are not useable (freq = 0) */
++static const unsigned int bcm2708_clk_freq[BCM2708_CLK_SRC_HDMI+1] = {
++	[BCM2708_CLK_SRC_GND]		= 0,
++	[BCM2708_CLK_SRC_OSC]		= 19200000,
++	[BCM2708_CLK_SRC_DBG0]		= 0,
++	[BCM2708_CLK_SRC_DBG1]		= 0,
++	[BCM2708_CLK_SRC_PLLA]		= 0,
++	[BCM2708_CLK_SRC_PLLC]		= 0,
++	[BCM2708_CLK_SRC_PLLD]		= 500000000,
++	[BCM2708_CLK_SRC_HDMI]		= 0,
++};
++
++static void snd_rpi_mbed_setup_gpio(void)
++{
++	/*
++	 * This is the common way to handle the GPIO pins for
++	 * the Raspberry Pi.
++	 * TODO Better way would be to handle
++	 * this in the device tree!
++	 */
++#define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
++#define SET_GPIO_ALT(g,a) *(gpio+(((g)/10))) |= (((a)<=3?(a)+4:(a)==4?3:2)<<(((g)%10)*3))
++
++	unsigned int *gpio;
++	int pin,alt;
++
++	gpio = ioremap(GPIO_BASE, SZ_16K);
++
++	pin=BCM2708_GPCLK0_GPIO_PIN4;
++	alt=BCM2708_GPCLK0_GPIO_PIN4_ALT;
++
++	/* configure GPCLK0 pin to correct ALT mode */
++	INP_GPIO(pin);		/* set mode to GPIO input first */
++	SET_GPIO_ALT(pin, alt);	/* set mode to ALT  */
++
++#undef INP_GPIO
++#undef SET_GPIO_ALT
++}
++
++#define GP_CLK0_CTL *(clk_map + BCM2708_GPCLK_CTL_REG)
++#define GP_CLK0_DIV *(clk_map + BCM2708_GPCLK_DIV_REG)
++
++static void snd_rpi_mbed_start_gpclk(unsigned int *clk_map)
++{
++	unsigned int tmp;
++
++	tmp = GP_CLK0_CTL;
++	tmp &= ~(BCM2708_CLK_PASSWD_MASK | BCM2708_CLK_ENAB);
++	tmp |= (BCM2708_CLK_PASSWD | BCM2708_CLK_ENAB);
++	GP_CLK0_CTL = tmp;
++}
++
++static void snd_rpi_mbed_stop_gpclk(unsigned int *clk_map)
++{
++	int timeout = 1000;
++	unsigned int tmp;
++
++	/* Stop clock */
++	tmp = GP_CLK0_CTL;
++	tmp &= ~(BCM2708_CLK_PASSWD_MASK | BCM2708_CLK_ENAB);
++	tmp |= BCM2708_CLK_PASSWD;
++	GP_CLK0_CTL = tmp;
++
++	/* Wait for the BUSY flag going down */
++	while (--timeout) {
++		if (!(GP_CLK0_DIV & BCM2708_CLK_BUSY))
++			break;
++	}
++
++	if (!timeout) {
++		/* KILL the clock */
++		tmp = GP_CLK0_CTL;
++		tmp &= ~(BCM2708_CLK_KILL | BCM2708_CLK_PASSWD_MASK);
++		tmp |= (BCM2708_CLK_KILL | BCM2708_CLK_PASSWD);
++		GP_CLK0_CTL = tmp;
++	}
++}
++
++static void snd_rpi_mbed_setup_gpclk(void)
++{
++	unsigned int mash = BCM2708_CLK_MASH_1;
++	unsigned int divi, divf, target_frequency;
++	int clk_src = BCM2708_CLK_SRC_PLLD;
++	unsigned int *clk_map;
++	uint64_t dividend;
++
++	clk_map = ioremap(GPCLK_BASE, SZ_4K);
++
++	snd_rpi_mbed_stop_gpclk(clk_map);
++
++	target_frequency = MBED_CODEC_MCLK;
++
++	dividend = bcm2708_clk_freq[clk_src];
++	dividend <<= BCM2708_CLK_SHIFT;
++	do_div(dividend, target_frequency);
++	divi = dividend >> BCM2708_CLK_SHIFT;
++	divf = dividend & BCM2708_CLK_DIVF_MASK;
++
++	/* Set clock divider */
++	GP_CLK0_DIV = BCM2708_CLK_PASSWD | BCM2708_CLK_DIVI(divi) | BCM2708_CLK_DIVF(divf);
++
++	/* Setup clock, but don't start it yet */
++	GP_CLK0_CTL = BCM2708_CLK_PASSWD | BCM2708_CLK_MASH(mash) | BCM2708_CLK_SRC(clk_src);
++
++	snd_rpi_mbed_start_gpclk(clk_map);
++}
++
++static int snd_rpi_mbed_init(struct snd_soc_pcm_runtime *rtd)
++{
++	snd_rpi_mbed_setup_gpclk();
++	snd_rpi_mbed_setup_gpio();
++	return 0;
++}
++
++static int snd_rpi_mbed_hw_params(struct snd_pcm_substream *substream,
++				       struct snd_pcm_hw_params *params)
++{
++	struct snd_soc_pcm_runtime *rtd = substream->private_data;
++	struct snd_soc_dai *codec_dai = rtd->codec_dai;
++	int sysclk;
++
++	sysclk = MBED_CODEC_MCLK; /* this is clocked by GPCLK0 */
++
++	/* set tlv320aic23 sysclk */
++	snd_soc_dai_set_sysclk(codec_dai, 0, sysclk, 0);
++
++	/* configure tlv320aic23 i2s mode */
++	snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_MASTER_MASK | SND_SOC_DAIFMT_FORMAT_MASK);
++
++	return 0;
++}
++
++/* machine stream operations */
++static struct snd_soc_ops snd_rpi_mbed_ops = {
++	.hw_params = snd_rpi_mbed_hw_params,
++};
++
++static struct snd_soc_dai_link snd_rpi_mbed_dai[] = {
++{
++	.name		= "TLV320AIC23",
++	.stream_name	= "TLV320AIC23 HiFi",
++	.cpu_dai_name	= "bcm2708-i2s.0",
++	.codec_dai_name	= "tlv320aic23-hifi",
++	.platform_name	= "bcm2708-i2s.0",
++	.codec_name	= "tlv320aic23-codec.1-001b",
++	.dai_fmt	= SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
++				SND_SOC_DAIFMT_CBS_CFS,
++	.ops		= &snd_rpi_mbed_ops,
++	.init		= snd_rpi_mbed_init,
++},
++};
++
++/* audio machine driver */
++static struct snd_soc_card snd_rpi_mbed = {
++	.name	 = "snd_rpi_mbed",
++	.dai_link     = snd_rpi_mbed_dai,
++	.num_links    = ARRAY_SIZE(snd_rpi_mbed_dai),
++};
++
++static int snd_rpi_mbed_probe(struct platform_device *pdev)
++{
++	int ret = 0;
++
++	snd_rpi_mbed.dev = &pdev->dev;
++	ret = snd_soc_register_card(&snd_rpi_mbed);
++	if (ret) {
++		dev_err(&pdev->dev,
++				"snd_soc_register_card() failed: %d\n", ret);
++	}
++
++	return ret;
++}
++
++
++static int snd_rpi_mbed_remove(struct platform_device *pdev)
++{
++	return snd_soc_unregister_card(&snd_rpi_mbed);
++}
++
++static struct platform_driver snd_rpi_mbed_driver = {
++	.driver = {
++		.name   = "snd-rpi-mbed",
++		.owner  = THIS_MODULE,
++	},
++	.probe	  = snd_rpi_mbed_probe,
++	.remove	 = snd_rpi_mbed_remove,
++};
++
++module_platform_driver(snd_rpi_mbed_driver);
++
++MODULE_AUTHOR("Florian Meier");
++MODULE_DESCRIPTION("ASoC Driver for Raspberry Pi connected to mbed AudioCODEC");
++MODULE_LICENSE("GPL");

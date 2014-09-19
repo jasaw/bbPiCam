@@ -1,0 +1,90 @@
+diff --git a/arch/arm/mach-bcm2708/include/mach/platform.h b/arch/arm/mach-bcm2708/include/mach/platform.h
+index 2e7e1bb..2921485 100644
+--- a/arch/arm/mach-bcm2708/include/mach/platform.h
++++ b/arch/arm/mach-bcm2708/include/mach/platform.h
+@@ -62,6 +62,7 @@
+ #define DMA_BASE		 (BCM2708_PERI_BASE + 0x7000)	/* DMA controller */
+ #define ARM_BASE                 (BCM2708_PERI_BASE + 0xB000)	 /* BCM2708 ARM control block */
+ #define PM_BASE			 (BCM2708_PERI_BASE + 0x100000) /* Power Management, Reset controller and Watchdog registers */
++#define GPCLK_BASE               (BCM2708_PERI_BASE + 0x101000) /* General Purpose Clock */
+ #define PCM_CLOCK_BASE           (BCM2708_PERI_BASE + 0x101098) /* PCM Clock */
+ #define RNG_BASE                 (BCM2708_PERI_BASE + 0x104000) /* Hardware RNG */
+ #define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) /* GPIO */
+diff --git a/sound/soc/bcm/bcm2708-i2s.c b/sound/soc/bcm/bcm2708-i2s.c
+index 905f076..c08c5a8 100644
+--- a/sound/soc/bcm/bcm2708-i2s.c
++++ b/sound/soc/bcm/bcm2708-i2s.c
+@@ -50,6 +50,13 @@
+ 
+ #include <asm/system_info.h>
+ 
++#define BCM2708_I2S_SYNC_TO_GPCLK0
++
++#ifdef BCM2708_I2S_SYNC_TO_GPCLK0
++#define BCM2708_GPCLK_CTL_REG		(0x70/4)
++#define BCM2708_GPCLK_DIV_REG		(0x74/4)
++#endif
++
+ /* Clock registers */
+ #define BCM2708_CLK_PCMCTL_REG  0x00
+ #define BCM2708_CLK_PCMDIV_REG  0x04
+@@ -66,6 +73,7 @@
+ 
+ #define BCM2708_CLK_SHIFT		(12)
+ #define BCM2708_CLK_DIVI(v)		((v) << BCM2708_CLK_SHIFT)
++#define BCM2708_CLK_DIVI_MASK		(0xFFF000)
+ #define BCM2708_CLK_DIVF(v)		(v)
+ #define BCM2708_CLK_DIVF_MASK		(0xFFF)
+ 
+@@ -454,6 +462,43 @@ static int bcm2708_i2s_hw_params(struct snd_pcm_substream *substream,
+ 	clk_src = BCM2708_CLK_SRC_OSC;
+ 	mash = BCM2708_CLK_MASH_0;
+ 
++#ifdef BCM2708_I2S_SYNC_TO_GPCLK0
++	{
++		unsigned int *gpclk_map;
++		uint64_t gpclk_dividend;
++		uint64_t i2s_dividend;
++
++		(void)frame_master;
++		(void)bit_master;
++
++		if (!dev->bclk_ratio) {
++			/*
++			 * Overwrite bclk_ratio, because the
++			 * above trick is not needed or can
++			 * not be used.
++			 */
++			bclk_ratio = 2 * data_length;
++		}
++
++		target_frequency = sampling_rate * bclk_ratio;
++
++		clk_src = BCM2708_CLK_SRC_PLLD;
++		mash = BCM2708_CLK_MASH_1;
++
++		i2s_dividend = bcm2708_clk_freq[clk_src];
++		i2s_dividend <<= BCM2708_CLK_SHIFT;
++		do_div(i2s_dividend, target_frequency);
++
++		/* Work out an interger ratio so both clocks are in sync */
++		gpclk_map = ioremap(GPCLK_BASE, SZ_4K);
++		gpclk_dividend = *(gpclk_map + BCM2708_GPCLK_DIV_REG);
++		i2s_dividend += (gpclk_dividend >> 1);
++		do_div(i2s_dividend, gpclk_dividend);
++		i2s_dividend *= gpclk_dividend;
++		divi = i2s_dividend >> BCM2708_CLK_SHIFT;
++		divf = i2s_dividend & BCM2708_CLK_DIVF_MASK;
++	}
++#else
+ 	if (bcm2708_clk_freq[clk_src] % target_frequency == 0
+ 			&& bit_master && frame_master) {
+ 		divi = bcm2708_clk_freq[clk_src] / target_frequency;
+@@ -481,6 +526,7 @@ static int bcm2708_i2s_hw_params(struct snd_pcm_substream *substream,
+ 		divi = dividend >> BCM2708_CLK_SHIFT;
+ 		divf = dividend & BCM2708_CLK_DIVF_MASK;
+ 	}
++#endif
+ 
+ 	/* Set clock divider */
+ 	regmap_write(dev->clk_regmap, BCM2708_CLK_PCMDIV_REG, BCM2708_CLK_PASSWD

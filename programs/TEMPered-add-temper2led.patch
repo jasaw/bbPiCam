@@ -1,0 +1,505 @@
+commit 31d384ed69d0a79dadd1c5fd389ab2ae2d5ed93b
+Author: Joo Aun Saw <jasaw@dius.com.au>
+Date:   Fri Sep 19 17:18:48 2014 +1000
+
+    Add temper2led.
+
+diff --git a/examples/CMakeLists.txt b/examples/CMakeLists.txt
+index 069f815..972534e 100644
+--- a/examples/CMakeLists.txt
++++ b/examples/CMakeLists.txt
+@@ -16,3 +16,6 @@ target_link_libraries(read-all ${TEMPERED_LIB} ${HIDAPI_LINK_LIBS})
+ 
+ add_executable(read-repeat read-repeat.c ${HIDAPI_STATIC_OBJECT})
+ target_link_libraries(read-repeat ${TEMPERED_LIB} ${HIDAPI_LINK_LIBS})
++
++add_executable(temper2led temper2led.c ${HIDAPI_STATIC_OBJECT})
++target_link_libraries(temper2led ${TEMPERED_LIB} ${HIDAPI_LINK_LIBS} -lm)
+diff --git a/examples/temper2led.c b/examples/temper2led.c
+new file mode 100644
+index 0000000..5ee9211
+--- /dev/null
++++ b/examples/temper2led.c
+@@ -0,0 +1,482 @@
++#include <stdlib.h>
++#include <stdio.h>
++#include <unistd.h>
++#include <string.h>
++#include <ctype.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <math.h>
++#include <signal.h>
++#include <getopt.h>
++#include <errno.h>
++#include <tempered.h>
++
++/**
++This example shows how to open a single device, and read its sensors repeatedly.
++*/
++
++struct interface_write_text
++{
++	const char *name;
++	const char *data;
++};
++
++static int terminated = 0;
++static const char *progname = "";
++static const char *temper_path = "/dev/hidraw1";
++static const char *ledctrl_path = "/sys/bus/i2c/devices/1-0007";
++static const char *temperature_output_path = "/tmp/RDing_TEMPer2_out";
++static int poll_rate = 5;
++
++#define min(a,b) ( (a < b) ? a : b )
++#define max(a,b) ( (a > b) ? a : b )
++
++
++static void handle_terminate_signal(int sig)
++{
++	if ((sig == SIGTERM) || (sig == SIGINT))
++		terminated = 1;
++}
++
++
++static int max_interface_name_length(struct interface_write_text *interface_data, int num_interfaces)
++{
++	int max = 0;
++	int len;
++	int i;
++	for (i = 0; i < num_interfaces; i++)
++	{
++		len = strlen(interface_data[i].name);
++		if (len > max)
++			max = len;
++	}
++	return max;
++}
++
++static int open_and_write(const char *device_path, const char *write_string)
++{
++	int result = -1;
++	struct stat st;
++	FILE *fileptr = NULL;
++
++	if (stat(device_path, &st) != 0)
++	{
++		fprintf(stderr, "Error: %s not found\n", device_path);
++	}
++	else if ((fileptr = fopen(device_path, "w")) == NULL)
++	{
++		fprintf(stderr, "Error: unable to open %s\n", device_path);
++	}
++	else if (fwrite(write_string, 1, strlen(write_string), fileptr) != strlen(write_string))
++	{
++		fprintf(stderr, "Error: failed to write to %s\n", device_path);
++	}
++	else
++	{
++		result = 0;
++	}
++	if (fileptr)
++	{
++		fclose(fileptr);
++		fileptr = NULL;
++	}
++	return result;
++}
++
++static int write_interface_data(const char *interface_dir, struct interface_write_text *interface_data, int num_interfaces)
++{
++	int error = 0;
++	int i;
++	int max_name_length = max_interface_name_length(interface_data, num_interfaces);
++	int interface_dir_length = strlen(interface_dir);
++	char *device_path = NULL;
++	int device_path_length = interface_dir_length + max_name_length + 1;
++
++	device_path = malloc(device_path_length);
++	if (device_path == NULL)
++	{
++		fprintf(stderr, "Error: failed to allocate memory\n");
++		return -1;;
++	}
++	memcpy(device_path, interface_dir, interface_dir_length);
++	device_path[interface_dir_length] = 0;
++
++	for (i = 0; i < num_interfaces; i++)
++	{
++		strcpy(&device_path[interface_dir_length], interface_data[i].name);
++		error |= open_and_write(device_path, interface_data[i].data);
++	}
++
++	free(device_path);
++	device_path = NULL;
++
++	return error;
++}
++
++static int configure_led_driver(const char *interface_dir)
++{
++	struct interface_write_text interface_data[] =
++	    {{.name = "/sleep",                  .data = "0"},
++	     {.name = "/group_blink_enable",     .data = "0"},
++	     {.name = "/group_blink_freq",       .data = "17"},
++	     {.name = "/group_brightness_blink", .data = "ff"},
++	     {.name = "/led_brightness",         .data = "000100200300400500600700800900a00b00c00d00e00f00"},
++	     {.name = "/led_state",              .data = "02122232425262728292a2b2c2d2e2f2"},};
++	return write_interface_data(interface_dir, interface_data, sizeof(interface_data)/sizeof(struct interface_write_text));
++}
++
++static int set_led_driver_pattern(const char *interface_dir, const char *pattern)
++{
++	struct interface_write_text interface_data[] =
++	    {{.name = "/led_brightness", .data = pattern},};
++	return write_interface_data(interface_dir, interface_data, sizeof(interface_data)/sizeof(struct interface_write_text));
++}
++
++static int validate_device(const char *device_dir, const char *device_name)
++{
++	struct stat st;
++	FILE *fileptr;
++	unsigned int i;
++	unsigned char found = 0;
++	char *device_path = NULL;
++	int device_path_length = strlen(device_dir) + strlen("/name") + 1;
++	char tmp_buffer[64];
++
++	device_path = malloc(device_path_length);
++	if (device_path == NULL)
++	{
++		fprintf(stderr, "Error: failed to allocate memory\n");
++		return -1;
++	}
++
++	strcpy(device_path, device_dir);
++	strcat(device_path, "/name");
++
++	if (stat(device_path, &st) != 0)
++	{
++		fprintf(stderr, "Error: %s not found\n", device_path);
++		free(device_path);
++		device_path = NULL;
++		return -1;
++	}
++
++	if ((fileptr = fopen(device_path, "r")) == NULL)
++	{
++		fprintf(stderr, "Error: unable to open %s\n", device_path);
++		free(device_path);
++		device_path = NULL;
++		return -1;
++	}
++
++	while (fgets(tmp_buffer, sizeof(tmp_buffer), fileptr) != NULL)
++	{
++		for (i = 0; i < strlen(tmp_buffer); i++)
++		{
++			if (!isalnum(tmp_buffer[i]))
++			{
++				tmp_buffer[i] = 0;
++				break;
++			}
++		}
++		//printf("\t%s\n", tmp_buffer);
++		if (strcmp(tmp_buffer, device_name) == 0)
++		{
++			found = 1;
++			break;
++		}
++	}
++
++	fclose(fileptr);
++
++	free(device_path);
++	device_path = NULL;
++
++	if (!found)
++		return -1;
++
++	return 0;
++}
++
++static int init_led(void)
++{
++	int led_driver_error = 0;
++
++	led_driver_error |= validate_device(ledctrl_path, "pca9635");
++	if (!led_driver_error)
++	{
++		led_driver_error |= configure_led_driver(ledctrl_path);
++	}
++
++	return led_driver_error;
++}
++
++//static unsigned char get_gamma(double value)
++//{
++//	return 0x80 | (int)(pow(value / 255.0, 2.5) * 127.0 + 0.5);
++//}
++
++static void temp_to_led(int sensor, float tempC)
++{
++	//double step;
++	char tmp_buffer[64] = {0};
++	unsigned char r,g,b;
++	float low, medium, high;
++
++	low = 18.0;
++	medium = 22.0;
++	high = 26.0;
++	r = g = b = 0;
++
++
++	if (sensor != 1)
++		return;
++
++	if (tempC < low)
++	{
++		b = 0xFF;
++	}
++	else if (tempC < medium)
++	{
++		//step = 0xFF * ((double)tempC - low)/(medium - low);
++		//g = get_gamma(step);
++		//b = get_gamma(0xFF - step);
++		g = 0xFF * (tempC - low)/(medium - low);
++		b = 0xFF - g;
++	}
++	else if (tempC < high)
++	{
++		//step = 0xFF * ((double)tempC - medium)/(high - medium);
++		//r = get_gamma(step);
++		//g = get_gamma(0xFF - step);
++		r = 0xFF * (tempC - medium)/(high - medium);
++		g = 0xFF - r;
++	}
++	else
++	{
++		r = 0xFF;
++	}
++
++	sprintf(tmp_buffer, "0%02x1%02x2%02x300400500600700800900a00b00c00d00e00f00", r ,b, g);
++	set_led_driver_pattern(ledctrl_path, tmp_buffer);
++}
++
++static void temp_turn_off_leds(void)
++{
++	set_led_driver_pattern(ledctrl_path, "000100200300400500600700800900a00b00c00d00e00f00");
++}
++
++/** Get and print the sensor values for a given device and sensor. */
++void read_device_sensor( tempered_device *device, int sensor, FILE *outfileptr )
++{
++	if (outfileptr)
++		fprintf(outfileptr, "Sensor %i:", sensor);
++	printf( "Sensor %i:", sensor );
++	int type = tempered_get_sensor_type( device, sensor );
++	if ( type == TEMPERED_SENSOR_TYPE_NONE )
++	{
++		if (outfileptr)
++			fprintf( outfileptr, " No such sensor, or type is not supported.\n" );
++		printf( " No such sensor, or type is not supported.\n" );
++		return;
++	}
++	if ( type & TEMPERED_SENSOR_TYPE_TEMPERATURE )
++	{
++		float tempC;
++		if ( tempered_get_temperature( device, sensor, &tempC ) )
++		{
++			temp_to_led(sensor, tempC);
++			if (outfileptr)
++				fprintf(outfileptr, " %.2f°C", tempC);
++			printf( " %.2f°C", tempC );
++		}
++		else
++		{
++			if (outfileptr)
++				fprintf(outfileptr,
++					" temperature failed (%s)",
++					tempered_error( device )
++				);
++			printf(
++				" temperature failed (%s)",
++				tempered_error( device )
++			);
++		}
++	}
++	if ( type & TEMPERED_SENSOR_TYPE_HUMIDITY )
++	{
++		float rel_hum;
++		if ( tempered_get_humidity( device, sensor, &rel_hum ) )
++		{
++			if (outfileptr)
++				fprintf( outfileptr, " %.1f%%RH", rel_hum );
++			printf( " %.1f%%RH", rel_hum );
++		}
++		else
++		{
++			if (outfileptr)
++				fprintf(outfileptr,
++					" humidity failed (%s)",
++					tempered_error( device )
++				);
++			printf(
++				" humidity failed (%s)",
++				tempered_error( device )
++			);
++		}
++	}
++	if (outfileptr)
++		fprintf( outfileptr, "\n" );
++	printf( "\n" );
++}
++
++/** Get and print the sensor values for a given device repeatedly. */
++void read_repeatedly( tempered_device *device )
++{
++	while (!terminated)
++	{
++		if ( !tempered_read_sensors( device ) )
++		{
++			printf(
++				"Failed to read the sensors: %s\n",
++				tempered_error( device )
++			);
++		}
++		else
++		{
++			FILE *outfileptr = NULL;
++			if (temperature_output_path != NULL)
++				outfileptr = fopen(temperature_output_path, "w");
++			int sensor, sensors = tempered_get_sensor_count( device );
++			for ( sensor = 0; sensor < sensors; sensor++ )
++			{
++				read_device_sensor( device, sensor, outfileptr );
++			}
++			if (outfileptr)
++			{
++				fclose(outfileptr);
++				outfileptr = NULL;
++			}
++		}
++		sleep(poll_rate);
++	}
++	temp_turn_off_leds();
++}
++
++
++/** Open the device with the given device path. */
++tempered_device* open_device( const char *dev_path )
++{
++	char *error = NULL;
++	struct tempered_device_list *list = tempered_enumerate( &error );
++	if ( list == NULL )
++	{
++		if ( error == NULL )
++		{
++			printf( "No devices were found.\n" );
++		}
++		else
++		{
++			fprintf( stderr, "Failed to enumerate devices: %s\n", error );
++			free( error );
++		}
++		return NULL;
++	}
++	tempered_device *device = NULL;
++	bool found = false;
++	struct tempered_device_list *dev;
++	for ( dev = list ; dev != NULL ; dev = dev->next )
++	{
++		if ( strcmp( dev->path, dev_path ) == 0 )
++		{
++			found = true;
++			device = tempered_open( dev, &error );
++			break;
++		}
++	}
++	tempered_free_device_list( list );
++	if ( device == NULL )
++	{
++		if ( found )
++		{
++			fprintf(
++				stderr, "Opening %s failed, error: %s\n",
++				dev_path, error
++			);
++			free( error );
++		}
++		else
++		{
++			fprintf( stderr, "Device not found: %s\n", dev_path );
++		}
++	}
++	return device;
++}
++
++static void syntax()
++{
++	fprintf(stderr, "Usage:\n");
++	fprintf(stderr, "%s [options]\n", progname);
++	fprintf(stderr, "\n");
++	fprintf(stderr, "options:\n");
++	fprintf(stderr, " -i <path>     TEMPer device path (default %s)\n", temper_path);
++	fprintf(stderr, " -l <path>     PCA9635 LED device path (default %s)\n", ledctrl_path);
++	fprintf(stderr, " -o <path>     Output text file (default %s)\n", temperature_output_path);
++	fprintf(stderr, " -p <rate>     Poll rate (default %d)\n", poll_rate);
++	fprintf(stderr, " -h            Display this information\n");
++	fprintf(stderr, "\n");
++	exit(EXIT_FAILURE);
++}
++
++
++int main( int argc, char *argv[] )
++{
++	int opt;
++
++	progname = argv[0];
++
++	while ((opt = getopt (argc, argv, "i:l:o:p:h")) != -1)
++	{
++		switch (opt)
++		{
++			case 'i': temper_path = optarg; if (strlen(temper_path) == 0) syntax(); break;
++			case 'l': ledctrl_path = optarg; if (strlen(ledctrl_path) == 0) syntax(); break;
++			case 'o': temperature_output_path = optarg; if (strlen(temperature_output_path) == 0) temperature_output_path = NULL; break;
++			case 'p': poll_rate = atoi(optarg); if (poll_rate < 1) syntax(); break;
++			case 'h': // fall through
++			default:
++				syntax();
++				break;
++		}
++	}
++
++	if (init_led() != 0)
++	{
++		fprintf( stderr, "Error: LED Control path not found: %s\n", ledctrl_path );
++		exit(EXIT_FAILURE);
++	}
++	signal(SIGINT, handle_terminate_signal);
++	signal(SIGTERM, handle_terminate_signal);
++
++	char *error = NULL;
++	if ( !tempered_init( &error ) )
++	{
++		fprintf( stderr, "Failed to initialize libtempered: %s\n", error );
++		free( error );
++		exit(EXIT_FAILURE);
++	}
++	
++	tempered_device *device = open_device( temper_path );
++	if ( device != NULL )
++	{
++		read_repeatedly( device );
++		tempered_close( device );
++	}
++	
++	if ( !tempered_exit( &error ) )
++	{
++		fprintf( stderr, "Failed to shut down libtempered: %s\n", error );
++		free( error );
++		exit(EXIT_FAILURE);
++	}
++	return 0;
++}

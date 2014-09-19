@@ -1,0 +1,58 @@
+#!/usr/bin/python
+""" Plots wav file """
+
+import os
+current_dir = os.path.dirname(os.path.realpath(__file__))
+import sys
+
+import wave
+import numpy as np
+import matplotlib.pyplot as plt
+
+#mpl.rcParams['examples.directory'] = current_dir
+
+
+
+
+
+def print_usage(prog_cmd):
+    print "Usage: %s <wavefile>" % prog_cmd
+
+
+def run():
+    if len(sys.argv) != 2:
+        print_usage(sys.argv[0])
+        sys.exit(-1)
+
+    wavefile = sys.argv[1]
+
+    if not os.path.isfile(wavefile):
+        print "Error: Wave file \"%s\" not found." % wavefile
+        sys.exit(-1)
+
+    spf = wave.open(wavefile,'r')
+    # Extract Raw Audio from Wav File
+    raw = spf.readframes(-1)
+    signal = np.fromstring(raw, 'Int16').reshape((-1,spf.getnchannels()))
+
+    fig = plt.figure()
+
+    # Write raw samples to file
+    #outfile = 'raw.out'
+    #with open(outfile, "w") as ofile:
+    #    for idx, values in enumerate(signal):
+    #        for v in values:
+    #            ofile.write("%11d\t" % v)
+    #        ofile.write("\n")
+
+    for i in range(spf.getnchannels()):
+        ax = fig.add_subplot(spf.getnchannels(), 1, i+1)
+        ax.set_title('Channel %d' % (i+1))
+        ax.plot(signal[:, i])
+
+    plt.show()
+
+
+
+if __name__ == "__main__":
+    run()

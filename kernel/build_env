@@ -1,0 +1,5 @@
+export ARCH=arm
+export CROSS_COMPILE=/home/jooaun/work/bbPiCam/kernel/tools/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian/bin/arm-linux-gnueabihf-
+export INSTALL_MOD_PATH=/home/jooaun/work/bbPiCam/kernel/modules
+export KERNEL_SRC=/home/jooaun/work/bbPiCam/kernel/linux
+

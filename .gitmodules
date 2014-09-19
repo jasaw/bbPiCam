@@ -1,0 +1,24 @@
+[submodule "kernel/tools"]
+	path = kernel/tools
+	url = git://github.com/raspberrypi/tools.git
+[submodule "kernel/linux"]
+	path = kernel/linux
+	url = https://github.com/raspberrypi/linux.git
+[submodule "programs/ffmpeg"]
+	path = programs/ffmpeg
+	url = git://source.ffmpeg.org/ffmpeg.git
+[submodule "programs/hidapi"]
+	path = programs/hidapi
+	url = https://github.com/signal11/hidapi.git
+[submodule "programs/motion-mmal"]
+	path = programs/motion-mmal
+	url = https://github.com/dozencrows/motion.git
+[submodule "programs/psips"]
+	path = programs/psips
+	url = https://github.com/AndyA/psips.git
+[submodule "programs/TEMPered"]
+	path = programs/TEMPered
+	url = https://github.com/edorfaus/TEMPered.git
+[submodule "programs/x264"]
+	path = programs/x264
+	url = git://git.videolan.org/x264

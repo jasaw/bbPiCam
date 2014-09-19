@@ -1,0 +1,53 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          bbpicam
+# Required-Start:    $network $local_fs $remote_fs crtmpserver nginx
+# Required-Stop:     $network $local_fs $remote_fs crtmpserver nginx
+# Default-Start:     3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Raspivid to ffmpeg
+# Description:       Video capture via raspivid and ffmpeg.
+### END INIT INFO
+
+# Author: Joo Aun Saw
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+DESC="Video Capture"
+NAME=bbpicam
+DAEMON=/opt/bbpicam/bbpicam_stream
+PIDFILE=/var/run/$NAME.pid
+SCRIPTNAME=/etc/init.d/$NAME
+
+[ -x $DAEMON ] || exit 0
+
+. /lib/init/vars.sh
+. /lib/lsb/init-functions
+
+
+
+case $1 in
+	start)
+		log_daemon_msg "Starting $DESC " "$NAME"
+		start-stop-daemon --start --background --quiet --pidfile $PIDFILE --make-pidfile --exec $DAEMON
+		status=$?
+		log_end_msg $status
+		;;
+	stop)
+		log_daemon_msg "Stopping $DESC" "$NAME"
+		start-stop-daemon --stop --quiet --pidfile $PIDFILE
+		status=$?
+		log_end_msg $status
+		rm -f $PIDFILE
+		;;
+	restart|force-reload)
+		$0 stop && sleep 2 && $0 start
+		;;
+	status)
+		status_of_proc "$DAEMON" "$NAME"
+		;;
+	*)
+		echo "Usage: $SCRIPTNAME {start|stop|restart|force-reload|status}"
+		exit 2
+		;;
+esac
+

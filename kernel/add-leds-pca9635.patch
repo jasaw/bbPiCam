@@ -1,0 +1,753 @@
+commit 2b246f71ee34d2db759420e044d7c066b7b336f9
+Author: Joo Aun Saw <jasaw@dius.com.au>
+Date:   Fri Sep 19 16:49:48 2014 +1000
+
+    Add PCA9635 LEDs driver.
+
+diff --git a/drivers/leds/Kconfig b/drivers/leds/Kconfig
+index 875bbe4..3dc803b 100644
+--- a/drivers/leds/Kconfig
++++ b/drivers/leds/Kconfig
+@@ -300,6 +300,14 @@ config LEDS_PCA963X
+ 	  LED driver chip accessed via the I2C bus. Supported
+ 	  devices include PCA9633 and PCA9634
+ 
++config LEDS_PCA9635
++	tristate "LED support for PCA9635 I2C chip"
++	depends on LEDS_CLASS
++	depends on I2C
++	help
++	  This option enables support for LEDs connected to the PCA9635
++	  LED driver chip accessed via the I2C bus.
++
+ config LEDS_WM831X_STATUS
+ 	tristate "LED support for status LEDs on WM831x PMICs"
+ 	depends on LEDS_CLASS
+diff --git a/drivers/leds/Makefile b/drivers/leds/Makefile
+index 8979b0b..c657620 100644
+--- a/drivers/leds/Makefile
++++ b/drivers/leds/Makefile
+@@ -36,6 +36,7 @@ obj-$(CONFIG_LEDS_OT200)		+= leds-ot200.o
+ obj-$(CONFIG_LEDS_FSG)			+= leds-fsg.o
+ obj-$(CONFIG_LEDS_PCA955X)		+= leds-pca955x.o
+ obj-$(CONFIG_LEDS_PCA963X)		+= leds-pca963x.o
++obj-$(CONFIG_LEDS_PCA9635)		+= leds-pca9635.o
+ obj-$(CONFIG_LEDS_DA903X)		+= leds-da903x.o
+ obj-$(CONFIG_LEDS_DA9052)		+= leds-da9052.o
+ obj-$(CONFIG_LEDS_WM831X_STATUS)	+= leds-wm831x-status.o
+diff --git a/drivers/leds/leds-pca9635.c b/drivers/leds/leds-pca9635.c
+new file mode 100644
+index 0000000..a29fcd0
+--- /dev/null
++++ b/drivers/leds/leds-pca9635.c
+@@ -0,0 +1,710 @@
++/*
++ *  pca9635.c - NXP LED driver
++ *
++ *  Copyright (C) 2010  Joo Aun Saw
++ *  Original author     Doug Bailey
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
++ * USA.
++*/
++
++//#include <linux/ctype.h>
++//#include <linux/kernel.h>
++#include <linux/init.h>
++#include <linux/module.h>
++#include <linux/slab.h>
++#include <linux/workqueue.h>
++//#include <linux/sched.h>
++//#include <linux/jiffies.h>
++#include <linux/i2c.h>
++//#include <linux/proc_fs.h>
++//#include <asm/uaccess.h>
++//#include <linux/mutex.h>
++//#include <linux/version.h>
++#include <linux/delay.h>
++
++#define NUM_LEDS    16
++#define BRIGHTNESS_MASK 0xff
++
++//#define PCA9635_PROC_FNAME    "pca9635"
++
++#define PCA9635_AUTOINC_MASK_NONE   (0x00)
++#define PCA9635_AUTOINC_MASK_ALL    (0x80)
++#define PCA9635_AUTOINC_MASK_BRIGHT (0xa0)
++#define PCA9635_AUTOINC_MASK_GLBCTL (0xc0)
++#define PCA9635_AUTOINC_MASK_ALLCTL (0xe0)
++
++#define PCA9635_REG_MODE1       0x0
++#define PCA9635_REG_MODE2       0x1
++#define PCA9635_REG_BRIGHTNESS0 0x2
++#define PCA9635_REG_GRPPWM      0x12
++#define PCA9635_REG_GRPFREQ     0x13
++#define PCA9635_REG_LEDOUT0     0x14
++#define PCA9635_REG_SUBADR1     0x18
++#define PCA9635_REG_SUBADR2     0x19
++#define PCA9635_REG_SUBADR3     0x1a
++#define PCA9635_REG_ALLCALLADR  0x1b
++#define PCA9635_NUM_REGS        (PCA9635_REG_ALLCALLADR +1)
++#define PCA9635_REG_DUMMY       0x1f
++
++#define PCA9635_REG_MODE1_SLEEP_MASK        0x10
++#define PCA9635_REG_MODE2_GRP_BLINK_MASK    0x20
++
++
++
++struct pca9635_led_data
++{
++    struct i2c_client *client;
++//    struct mutex update_lock;
++    unsigned char ind_config_mode_1;
++    unsigned char ind_config_mode_2;
++    unsigned char ind_group_brightness;
++    unsigned char ind_group_frequency;
++    unsigned char ind_led_state[NUM_LEDS];
++    unsigned char ind_led_brightness[NUM_LEDS];
++    // Work queue to allow for background update of led state and brightness registers
++    struct delayed_work update_state_wq;
++    struct delayed_work update_brightness_wq;
++};
++
++
++
++
++#define isdigit(c) (c >= '0' && c <= '9')
++#define isxdigit(c) ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
++#define tonumber(x) ((x)-'0')
++static unsigned char tohex(unsigned char c)
++{
++    unsigned char digit;
++    if (isdigit(c))
++        digit = c - '0';
++    else
++        digit = (c | 0x20) - 'a' + 10;
++    return digit;
++}
++
++
++
++static ssize_t pca9635_get_led_state(struct device *dev, struct device_attribute *attr, char *buf)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    int ret = 0;
++    int i;
++
++    for (i = 0; i < NUM_LEDS; i++)
++        ret += sprintf(buf+ret, "%X: %X\n", i, data->ind_led_state[i]);
++
++    return ret;
++}
++static ssize_t pca9635_set_led_state(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    unsigned char new_led_state[NUM_LEDS];
++    int i;
++    int led_index;
++
++    memcpy(new_led_state, data->ind_led_state, NUM_LEDS);
++    for (i = 0; i < count; i = i + 2)
++    {
++        if ((i + 1) < count)
++        {
++            if ((isxdigit(buf[i])) && (isdigit(buf[i+1])))
++            {
++                led_index = tohex(buf[i]);
++                if (led_index < NUM_LEDS)
++                {
++                    new_led_state[led_index] = tonumber(buf[i+1]) & 0x3;
++                }
++            }
++            else
++            {
++                return -EINVAL;
++            }
++        }
++        else
++        {
++            break;
++        }
++    }
++
++    if (memcmp(new_led_state, data->ind_led_state, NUM_LEDS) != 0)
++    {
++        memcpy(data->ind_led_state, new_led_state, NUM_LEDS);
++        schedule_delayed_work(&data->update_state_wq, 0);
++    }
++
++    return count;
++}
++static DEVICE_ATTR(led_state, S_IWUSR | S_IRUGO, pca9635_get_led_state, pca9635_set_led_state);
++
++
++static ssize_t pca9635_get_led_brightness(struct device *dev, struct device_attribute *attr, char *buf)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    int ret = 0;
++    int i;
++
++    for (i = 0; i < NUM_LEDS; i++)
++        ret += sprintf(buf+ret, "%X: 0x%02X\n", i, data->ind_led_brightness[i]);
++
++    return ret;
++}
++static ssize_t pca9635_set_led_brightness(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    unsigned char new_led_brightness[NUM_LEDS];
++    int i;
++    int led_index;
++
++    memcpy(new_led_brightness, data->ind_led_brightness, NUM_LEDS);
++    for (i = 0; i < count; i = i + 3)
++    {
++        if ((i + 2) < count)
++        {
++            if ((isxdigit(buf[i])) && (isxdigit(buf[i+1])) && (isxdigit(buf[i+2])))
++            {
++                led_index = tohex(buf[i]);
++                if (led_index < NUM_LEDS)
++                {
++                    new_led_brightness[led_index] = (tohex(buf[i+1]) * 16) + tohex(buf[i+2]);
++                }
++            }
++            else
++            {
++                return -EINVAL;
++            }
++        }
++        else
++        {
++            break;
++        }
++    }
++
++    if (memcmp(new_led_brightness, data->ind_led_brightness, NUM_LEDS) != 0)
++    {
++        memcpy(data->ind_led_brightness, new_led_brightness, NUM_LEDS);
++        schedule_delayed_work(&data->update_brightness_wq, 0);
++    }
++
++    return count;
++}
++static DEVICE_ATTR(led_brightness, S_IWUSR | S_IRUGO, pca9635_get_led_brightness, pca9635_set_led_brightness);
++
++
++static ssize_t pca9635_get_group_blink_freq(struct device *dev, struct device_attribute *attr, char *buf)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    int ret;
++
++    ret = sprintf(buf, "0x%02X\n", data->ind_group_frequency);
++
++    return ret;
++}
++static ssize_t pca9635_set_group_blink_freq(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    int bytes = 0;
++    u8 msg[2];
++    int result = count;
++
++    if (count > 1)
++    {
++        if ((isxdigit(buf[0])) && (isxdigit(buf[1])))
++        {
++            data->ind_group_frequency = (tohex(buf[0]) * 16) + tohex(buf[1]);
++            // write new value
++            msg[0] = PCA9635_REG_GRPFREQ;
++            msg[1] = data->ind_group_frequency;
++            bytes = i2c_master_send(client, msg, 2);
++            if (bytes != 2)
++            {
++                dev_warn(&client->dev, "Failed to set Group Blink Frequency\n");
++                result = -EIO;
++            }
++        }
++        else
++        {
++            result = -EINVAL;
++        }
++    }
++
++    return result;
++}
++static DEVICE_ATTR(group_blink_freq, S_IWUSR | S_IRUGO, pca9635_get_group_blink_freq, pca9635_set_group_blink_freq);
++
++
++static ssize_t pca9635_get_group_brightness_blink(struct device *dev, struct device_attribute *attr, char *buf)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    int ret;
++
++    ret = sprintf(buf, "0x%02X\n", data->ind_group_brightness);
++
++    return ret;
++}
++static ssize_t pca9635_set_group_brightness_blink(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    int bytes = 0;
++    u8 msg[2];
++    int result = count;
++
++    if (count > 0)
++    {
++        if ((isxdigit(buf[0])) && (isxdigit(buf[1])))
++        {
++            data->ind_group_brightness = (tohex(buf[0]) * 16) + tohex(buf[1]);
++            // write new value
++            msg[0] = PCA9635_REG_GRPPWM;
++            msg[1] = data->ind_group_brightness;
++            bytes = i2c_master_send(client, msg, 2);
++            if (bytes != 2)
++            {
++                dev_warn(&client->dev, "Failed to set Group Brightness\n");
++                result = -EIO;
++            }
++        }
++        else
++        {
++            result = -EINVAL;
++        }
++    }
++
++    return result;
++}
++static DEVICE_ATTR(group_brightness_blink, S_IWUSR | S_IRUGO, pca9635_get_group_brightness_blink, pca9635_set_group_brightness_blink);
++
++
++static ssize_t pca9635_get_group_blink_enable(struct device *dev, struct device_attribute *attr, char *buf)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    int ret;
++
++    ret = sprintf(buf, "%c\n", (data->ind_config_mode_2 & PCA9635_REG_MODE2_GRP_BLINK_MASK) ? '1' : '0');
++
++    return ret;
++}
++static ssize_t pca9635_set_group_blink_enable(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    int bytes = 0;
++    u8 msg[2];
++    int result = count;
++
++    if (count > 0)
++    {
++        switch (buf[0])
++        {
++            case '1':
++                data->ind_config_mode_2 |= PCA9635_REG_MODE2_GRP_BLINK_MASK;
++                break;
++            case '0':
++                data->ind_config_mode_2 &= ~PCA9635_REG_MODE2_GRP_BLINK_MASK;
++                break;
++            default:
++                result = -EINVAL;
++        }
++        if (result > 0)
++        {
++            // write new value
++            msg[0] = PCA9635_REG_MODE2;
++            msg[1] = data->ind_config_mode_2;
++            bytes = i2c_master_send(client, msg, 2);
++            if (bytes != 2)
++            {
++                dev_warn(&client->dev, "Failed to set Group Blink mode\n");
++                result = -EIO;
++            }
++        }
++    }
++
++    return result;
++}
++static DEVICE_ATTR(group_blink_enable, S_IWUSR | S_IRUGO, pca9635_get_group_blink_enable, pca9635_set_group_blink_enable);
++
++
++static ssize_t pca9635_get_sleep(struct device *dev, struct device_attribute *attr, char *buf)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    int ret;
++
++    ret = sprintf(buf, "%c\n", (data->ind_config_mode_1 & PCA9635_REG_MODE1_SLEEP_MASK) ? '1' : '0');
++
++    return ret;
++}
++static ssize_t pca9635_set_sleep(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
++{
++    struct i2c_client *client = to_i2c_client(dev);
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    int bytes = 0;
++    u8 msg[2];
++    int result = count;
++
++    if (count > 0)
++    {
++        switch (buf[0])
++        {
++            case '1':
++                data->ind_config_mode_1 |= PCA9635_REG_MODE1_SLEEP_MASK;
++                break;
++            case '0':
++                data->ind_config_mode_1 &= ~PCA9635_REG_MODE1_SLEEP_MASK;
++                break;
++            default:
++                result = -EINVAL;
++        }
++        if (result > 0)
++        {
++            // write new value
++            msg[0] = PCA9635_REG_MODE1;
++            msg[1] = data->ind_config_mode_1;
++            bytes = i2c_master_send(client, msg, 2);
++            if (bytes != 2)
++            {
++                dev_warn(&client->dev, "Failed to set Sleep mode\n");
++                result = -EIO;
++            }
++        }
++    }
++
++    return result;
++}
++static DEVICE_ATTR(sleep, S_IWUSR | S_IRUGO, pca9635_get_sleep, pca9635_set_sleep);
++
++
++
++
++
++static struct attribute *pca9635_attributes[] = {
++    &dev_attr_sleep.attr,
++    &dev_attr_group_blink_enable.attr,
++    &dev_attr_group_brightness_blink.attr,
++    &dev_attr_group_blink_freq.attr,
++    &dev_attr_led_brightness.attr,
++    &dev_attr_led_state.attr,
++    NULL
++};
++
++
++static const struct attribute_group pca9635_attr_group = {
++    .attrs = pca9635_attributes,
++};
++
++
++
++
++
++
++/*  Sends i2c stream that sets the state of the LEDs on the driver
++ *
++ * Use i2c_transfer due to unique capability to set led driver for auto increment
++ *  (SMB functions did not allow for multiple byte transactions due to
++ *  length byte in data payload.)
++*/
++static void refresh_led_state(struct work_struct *work)
++{
++    struct delayed_work *tmp_delayed_work = container_of(work, struct delayed_work, work);
++    struct pca9635_led_data *data = container_of(tmp_delayed_work, struct pca9635_led_data, update_state_wq);
++    struct i2c_client *client = data->client;
++
++    int i;
++    int res;
++    u8 led_onoff[NUM_LEDS/4+1];
++
++    struct i2c_msg msg =
++    {   .addr = 0,
++        .flags = 0, // Write this data
++        .len = NUM_LEDS/4+1,
++        .buf = led_onoff
++    };
++
++    if (data != NULL)
++    {
++        msg.addr = client->addr;
++        led_onoff[0] = PCA9635_REG_LEDOUT0 + PCA9635_AUTOINC_MASK_ALL;
++        for (i = 1; i <= NUM_LEDS/4; i++)
++            led_onoff[i]= 0;
++        for (i = 0; i < NUM_LEDS; i++)
++            led_onoff[i/4+1] |= ( data->ind_led_state[i] & 0x3) << (2*(i % 4));
++
++        res = i2c_transfer(client->adapter, &msg, 1);
++        if (res < 0)
++        {
++            schedule_delayed_work(&data->update_state_wq, msecs_to_jiffies(100));
++            dev_warn(&client->dev, "Failed to refresh LED state\n");
++        }
++    }
++    //dev_info(&client->dev, "LED state refreshed\n");
++}
++
++
++// Send i2c stream that sets the brightness registers in the IC
++static void refresh_led_brightness(struct work_struct *work)
++{
++    struct delayed_work *tmp_delayed_work = container_of(work, struct delayed_work, work);
++    struct pca9635_led_data *data = container_of(tmp_delayed_work, struct pca9635_led_data, update_brightness_wq);
++    struct i2c_client *client = data->client;
++
++    int i;
++    int res;
++    u8 led_brightness[NUM_LEDS+1];
++
++    struct i2c_msg msg =
++    {   .addr = 0,
++        .flags = 0, // Write this data
++        .len = NUM_LEDS+1,
++        .buf = led_brightness
++    };
++
++    if (data != NULL)
++    {
++        msg.addr = client->addr;
++        led_brightness[0] = PCA9635_REG_BRIGHTNESS0 + PCA9635_AUTOINC_MASK_ALL;
++        for (i = 0; i < NUM_LEDS; i++)
++            led_brightness[i+1] = data->ind_led_brightness[i];
++        res = i2c_transfer(client->adapter, &msg, 1);
++        if (res < 0)
++        {
++            schedule_delayed_work(&data->update_brightness_wq, msecs_to_jiffies(100));
++            dev_warn(&client->dev, "Failed to refresh LED brightness\n");
++        }
++    }
++    //dev_info(&client->dev, "LED brightness refreshed\n");
++}
++
++
++static int pca9635_configure(struct i2c_client *client)
++{
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++    int i;
++    int res;
++    u8 init_data[PCA9635_NUM_REGS +1];
++    struct i2c_msg msg =
++    {
++        .addr = 0,
++        .flags = 0, // Write this data
++//        .len = PCA9635_NUM_REGS + 1 -4, // Not setting the ALL CALL rtegs
++        .len = PCA9635_NUM_REGS + 1,
++        .buf = init_data,
++    };
++
++    msg.addr = client->addr;
++    // specifiy the first register address and set auto- increment
++    init_data[0] = PCA9635_REG_MODE1 | PCA9635_AUTOINC_MASK_ALL;
++
++    init_data[PCA9635_REG_MODE1+1] = data->ind_config_mode_1;
++    init_data[PCA9635_REG_MODE2+1] = data->ind_config_mode_2;
++
++    for (i = 0; i < NUM_LEDS; i++)
++        init_data[PCA9635_REG_BRIGHTNESS0 + i +1] = data->ind_led_brightness[i];
++
++    init_data[PCA9635_REG_GRPPWM +1] = data->ind_group_brightness;
++    init_data[PCA9635_REG_GRPFREQ +1] = data->ind_group_frequency;
++
++    for (i = 0; i < NUM_LEDS/4; i++)
++        init_data[PCA9635_REG_LEDOUT0 + i +1] = 0;
++    for (i = 0; i < NUM_LEDS; i++)
++        init_data[PCA9635_REG_LEDOUT0 + (i/4) +1] |= (data->ind_led_state[i] & 0x3) << (2*(i % 4));
++
++//#if 0 // Going to leave to defaults for now
++    init_data[PCA9635_REG_SUBADR1 +1] = 0;
++    init_data[PCA9635_REG_SUBADR2 +1] = 0;
++    init_data[PCA9635_REG_SUBADR3 +1] = 0;
++    init_data[PCA9635_REG_ALLCALLADR +1] = 0;
++//#endif
++
++    res = i2c_transfer(client->adapter, &msg, 1);
++
++    return res;
++}
++
++
++static void pca9635_reset_i2c_interface(struct i2c_client *client)
++{
++    //struct pca9635_led_data *data = i2c_get_clientdata(client);
++    u8 dummy_data;
++    struct i2c_msg msg =
++    {
++        .addr = 0,
++        .flags = 0, // Write this data
++        .len = 1,
++        .buf = &dummy_data,
++    };
++
++    msg.addr = client->addr;
++    dummy_data = PCA9635_REG_DUMMY;
++    i2c_transfer(client->adapter, &msg, 1);
++}
++//static int pca9635_reset_i2c_interface(struct i2c_client *client)
++//{
++//    //struct pca9635_led_data *data = i2c_get_clientdata(client);
++//    int res;
++//    u8 dummy_data[2];
++//    struct i2c_msg msg =
++//    {
++//        .addr = 0,
++//        .flags = 1, // read this data
++//        .len = 2,
++//        .buf = dummy_data,
++//    };
++//
++//    msg.addr = client->addr;
++//    dummy_data[0] = PCA9635_REG_MODE1;
++//    res = i2c_transfer(client->adapter, &msg, 1);
++//
++//    return res;
++//}
++
++
++static int pca9635_probe(struct i2c_client *client, const struct i2c_device_id *id)
++{
++    struct pca9635_led_data *data;
++    int err;
++    int i;
++
++    dev_info(&client->dev, "Probe\n");
++
++    if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
++        return -EIO;
++
++    if (!(data = kzalloc(sizeof(struct pca9635_led_data), GFP_KERNEL)))
++    {
++        err = -ENOMEM;
++        goto exit;
++    }
++
++    i2c_set_clientdata(client, data);
++    data->client = client;
++//    mutex_init(&data->update_lock);
++    INIT_DELAYED_WORK(&data->update_state_wq, refresh_led_state);
++    INIT_DELAYED_WORK(&data->update_brightness_wq, refresh_led_brightness);
++
++    for (i = 0; i < NUM_LEDS; i++)
++        data->ind_led_brightness[i] = 0x00; // minimum brightness
++    for (i = 0; i < NUM_LEDS; i++)
++        data->ind_led_state[i] = 0x00; // All led's off
++    data->ind_config_mode_1 = 0x00; // Power/Osc on, no all calls
++    data->ind_config_mode_2 = 0x01; // no group blink, no invert output, update on STOP, open-drain
++    data->ind_group_brightness = 0xFF; // full brightness
++    data->ind_group_frequency = 23; // 1 second period
++
++    // Initialize the PCA9635 chip
++    pca9635_reset_i2c_interface(client);
++//    for (i = 0; i < 5; i++)
++//    {
++//        err = pca9635_reset_i2c_interface(client);
++//        if (err < 0)
++//        {
++//            dev_warn(&client->dev, "Read device attempt %d failed\n", i+1);
++//            mdelay(100);
++//        }
++//        else
++//            break;
++//    }
++//    dev_info(&client->dev, "Configure\n");
++    for (i = 0; i < 3; i++)
++    {
++        err = pca9635_configure(client);
++        if (err < 0)
++        {
++//            dev_warn(&client->dev, "Configure device attempt %d failed\n", i+1);
++            mdelay(20);
++        }
++        else
++            break;
++    }
++    if (err < 0)
++    {
++        dev_err(&client->dev, "Failed to configure device\n");
++        goto exit_kfree;
++    }
++
++    // DEBUG !!!
++//    schedule_work(&data->update_state_wq);
++//    schedule_work(&data->update_brightness_wq);
++
++    // Register sysfs hooks
++    err = sysfs_create_group(&client->dev.kobj, &pca9635_attr_group);
++    if (err)
++    {
++        dev_err(&client->dev, "Failed to sysfs interface\n");
++        goto exit_kfree;
++    }
++
++    dev_info(&client->dev, "Initialized\n");
++
++    return 0;
++
++exit_kfree:
++    kfree(data);
++    i2c_set_clientdata(client, NULL);
++exit:
++    return err;
++}
++
++
++static int pca9635_remove(struct i2c_client *client)
++{
++    struct pca9635_led_data *data = i2c_get_clientdata(client);
++
++    sysfs_remove_group(&client->dev.kobj, &pca9635_attr_group);
++
++    cancel_delayed_work(&data->update_state_wq);
++    cancel_delayed_work(&data->update_brightness_wq);
++    flush_delayed_work(&data->update_state_wq);
++    flush_delayed_work(&data->update_brightness_wq);
++//    flush_scheduled_work();
++
++    kfree(data);
++    i2c_set_clientdata(client, NULL);
++
++    return 0;
++}
++
++
++static const struct i2c_device_id pca9635_id[] = {
++    { "pca9635", 0 },
++    { }
++};
++MODULE_DEVICE_TABLE(i2c, pca9635_id);
++
++
++static struct i2c_driver pca9635_driver = {
++    .driver = {
++        .name = "pca9635",
++        .owner = THIS_MODULE,
++    },
++    .probe = pca9635_probe,
++    .remove = pca9635_remove,
++    .id_table = pca9635_id,
++};
++
++module_i2c_driver(pca9635_driver);
++
++
++MODULE_AUTHOR("Joo Aun Saw");
++MODULE_DESCRIPTION("I2C PCA9635 LED driver");
++MODULE_LICENSE("GPL");

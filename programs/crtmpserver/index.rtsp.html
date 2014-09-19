@@ -1,0 +1,50 @@
+<html>
+<head>
+<title>BB Pi Camera RTMP stream</title>
+</head>
+    <div id="video-jwplayer_wrapper" style="position: relative; display: block; width: 1280px; height: 960px;">
+      <object type="application/x-shockwave-flash" data="/jwplayer/jwplayer.flash.swf" width="100%" height="100%" bgcolor="#000000" id="video-jwplayer" name="video-jwplayer" tabindex="0">
+        <param name="allowfullscreen" value="true">
+        <param name="allowscriptaccess" value="always">
+        <param name="seamlesstabbing" value="true">
+        <param name="wmode" value="opaque">
+      </object>
+      <div id="video-jwplayer_aspect" style="display: none;"></div>
+      <div id="video-jwplayer_jwpsrv" style="position: absolute; top: 0px; z-index: 10;"></div>
+    </div>
+
+    <script src="/jwplayer/jwplayer.js"></script>
+
+    <script type="text/javascript">
+    jwplayer('video-jwplayer').setup({
+      flashplayer:"/jwplayer/jwplayer.flash.swf"
+      , file:"rtmp://" + window.location.hostname + "/flvplayback/bbPiCam"
+      , autoStart: true
+      , rtmp:{
+        bufferlength:0.1
+      }
+      , deliveryType: "streaming"
+      , width: 1280
+      , height: 960
+      , player: {
+        modes: {
+          linear: {
+            controls:{
+              stream:{
+                manage:false
+                , enabled: false
+              }
+            }
+          }
+        }
+      }
+      , shows: {
+        streamTimer: {
+          enabled: true
+          , tickRate: 100
+        }
+      }
+    });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+commit dc366a2fbfeab5686241967968f36eaf1c458370
+Author: Joo Aun Saw <jasaw@dius.com.au>
+Date:   Fri Sep 19 17:18:35 2014 +1000
+
+    fix broken cmakelists.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b3cd007..5c95f13 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -17,7 +17,7 @@ if (NOT DEFINED CMAKE_INSTALL_LIBDIR)
+ 	# directory with the name GNUInstallDirs (without the extension).
+ endif()
+ 
+-option(BUILD_HIDAPI_SHARED "Build with shared version of HIDAPI" ON)
++option(BUILD_HIDAPI_SHARED "Build with shared version of HIDAPI" OFF)
+ 
+ option(BUILD_SHARED_LIB "Build shared version of tempered library" ON)
+ option(BUILD_STATIC_LIB "Build static version of tempered library" OFF)
+@@ -54,7 +54,7 @@ else()
+ 	)
+ 	set(HIDAPI_STATIC_OBJECT ${HIDAPI_OBJECT})
+ 	find_package(PkgConfig REQUIRED)
+-	if (HIDAPI_OBJECT MATCHES \(-libusb|/libusb/(.libs/)?hid\)\\.o\$)
++	if (HIDAPI_OBJECT MATCHES \(-libusb|/libusb/\(.libs/\)?hid\)\\.o\$)
+ 		pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
+ 		set(HIDAPI_LINK_LIBS ${LIBUSB_LIBRARIES} rt pthread)
+ 	else()
