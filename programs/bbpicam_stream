@@ -2,7 +2,7 @@
 
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
-sleep 5
+sleep 10
 
 FIFO=/tmp/live.h264
 
