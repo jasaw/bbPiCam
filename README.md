@@ -506,3 +506,4 @@ sudo apt-get install libjpeg62 libjpeg62-dev libavformat53 libavformat-dev libav
 
 Get pre-compiled motion binary and sample configuration file from programs/motion-mmal-opt.tar.gz
 
+Run motion and point your browser to http://<pi-address>:8081
