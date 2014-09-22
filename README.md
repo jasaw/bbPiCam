@@ -406,6 +406,9 @@ Start audio video stream automatically at boot:
 sudo insserv bbpicam
 ```
 
+Point your browser to http://rpi-cam. I have tested this on Chrome and Firefox.
+If you want to play the stream from an Android device, try "RTSP Player" app.
+
 ### RGB Temperature LED
 
 Transfer required software to the Pi.
@@ -506,4 +509,4 @@ sudo apt-get install libjpeg62 libjpeg62-dev libavformat53 libavformat-dev libav
 
 Get pre-compiled motion binary and sample configuration file from programs/motion-mmal-opt.tar.gz
 
-Run motion and point your browser to http://<pi-address>:8081
+Run motion and point your browser to http://rpi-cam:8081
