@@ -1,0 +1,94 @@
+How to install custom Raspbian kernel with mbed Audio CODEC support:
+====================================================================
+
+# Clone the Raspbian kernel source
+git clone https://github.com/raspberrypi/linux.git
+
+# Clone koalo's kernel source that contains mbed driver
+git clone git://github.com/koalo/linux.git linux_koalo
+cd linux_koalo
+git checkout remotes/origin/rpi-3.8.y-asocdev
+
+# Port mbed driver across to Raspbian kernel
+# Copy linux_koalo/sound/soc/bcm2708/rpi-mbed.c to linux/sound/soc/bcm directory.
+# Update linux/sound/soc/bcm/Kconfig and linux/sound/soc/bcm/Makefile
+# Add mbed I2C device info in linux/arch/arm/march-bcm2708/bcm2708.c
+
+# Load environment variables
+. build_env
+
+# Clean up
+cd linux
+make mrproper
+cd -
+
+# Get kernel config from Pi running Raspbian:
+zcat /proc/config.gz > /tmp/.config
+
+# Copy .config file to linux directory:
+scp pi@rpi-cam:/tmp/.config ./linux
+
+# Enable rpi_mbed under:
+#   Device Drivers
+#     > Sound card support
+#       > Advanced Linux Sound Architecture
+#         > ALSA for SoC audio support
+#           > SoC Audio support for the Broadcom BCM2708 I2S module
+cd linux
+make oldconfig
+make menuconfig
+
+# Compile kernel
+make -j4
+cd -
+
+# Install kernel modules
+mkdir modules
+cd linux
+make modules_install
+cd -
+
+# Create kernel.img from zImage
+cd tools/mkimage
+./imagetool-uncompressed.py ${KERNEL_SRC}/arch/arm/boot/zImage
+cd -
+
+# Copy kernel.img to the Pi
+scp tools/mkimage/kernel.img pi@rpi-cam:/tmp
+
+# On the Pi
+cd /boot
+sudo mv kernel.img kernel.img.org
+sudo mv /tmp/kernel.img .
+
+# Before transfering kernel modules over to the Pi, remove symlinks
+rm modules/lib/modules/3.12.26+/build modules/lib/modules/3.12.26+/source
+tar czf modules.tar.gz modules/
+scp modules.tar.gz pi@rpi-cam:/tmp
+
+# On the Pi
+cd /tmp
+tar xzf modules.tar.gz
+cd /lib
+mv modules modules_org
+sudo mv /tmp/modules/lib/modules /lib
+sudo chown -R root:root /lib/modules
+sudo reboot
+
+# add below lines to /etc/modules
+snd_soc_bcm2708
+snd_soc_bcm2708_i2s
+bcm2708_dmaengine
+snd_soc_tlv320aic23
+snd_soc_rpi_mbed
+
+# debug
+sudo modprobe i2c-bcm2708
+sudo modprobe i2c-dev
+sudo apt-get install i2c-tools
+i2cdetect 1
+
+# record
+alsamixer -c 1
+arecord -D hw:1,0 -f DAT -r 8 /tmp/my_record.wav
+
