@@ -460,6 +460,35 @@ Start TEMPer 2 LED automatically at boot:
 sudo insserv temper2led_init
 ```
 
+### Shutdown Button watcher
+
+Transfer shutdown_button to the Pi.
+On PC:
+```
+scp -r programs/shutdown_button pi@rpi-cam:
+```
+
+Build shutdown_button.
+```
+cd shutdown_button
+make
+cd -
+```
+
+Install shutdown_button.
+```
+sudo mkdir /opt/shutdown_button
+sudo cp -f shutdown_button/shutdown_button_init /etc/init.d/shutdown_button_init
+sudo cp -f shutdown_button/shutdown_button /opt/shutdown_button/shutdown_button
+sudo chown root:root /etc/init.d/shutdown_button_init
+sudo service shutdown_button_init start
+```
+
+Start shutdown_button automatically at boot:
+```
+sudo insserv shutdown_button_init
+```
+
 ### HLS (alternative)
 
 HLS is short for HTTP Live Streaming. HLS is implemented by Apple and only works well on Apple devices and Safari browser.
