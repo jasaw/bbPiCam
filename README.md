@@ -15,9 +15,9 @@ Features:
 
 ![Night view](https://github.com/jasaw/bbPiCam/blob/master/docs/night.jpg)
 
-## Hardware
+# Hardware
 
-Setting up the hardware requires a fair bit of soldering and drilling. Let's get started...
+Setting up the hardware requires a fair bit of soldering and drilling. Let's get started ...
 
 ### Bill of Materials
 
@@ -69,19 +69,17 @@ The IR LEDs emit IR light mostly at the front, but some light are reflected back
 
 A reliable way to enable audio input on the Pi is via the I2S interface. I2S is short for Inter-IC Sound. Only the Rev 2 and Model B+ Pi expose the I2S signals.
 
-The I2S signals are exposed via P5 header, next to the P1 header. Solder a header on it.
-
-Refer to [RPi Low-level peripherals](http://elinux.org/RPi_Low-level_peripherals) for pinouts.
+The I2S signals are exposed via P5 header, next to the P1 header. Solder a header on it. Refer to [RPi Low-level peripherals](http://elinux.org/RPi_Low-level_peripherals) for pinouts.
 
 As for the audio codec, I used the mbed AudioCodec board based on TI TLV320AIC23B. I had to make a few modifications to the board, which may not suit everyone. Those who are not comfortable with soldering can explore other codecs like the PROTO audio codec board based on WM8731. This [I2S guide](http://blog.koalo.de/2013/05/i2s-support-for-raspberry-pi.html) by Koalo may be helpful.
 
-Modifications to the mbed AudioCodec board:
+Modifications made to the mbed AudioCodec board:
 * MIC Bias (pin 17) and MIC Input (pin 18) of the IC are not exposed on a connector. Wires were soldered from the 2 MIC and GND pins of the IC to the unused side of the header.
 * The 12MHz crystal was removed and MCLK (pin 25) and wires soldered from the MCLK pin to an unused header pin.
 
 The crystal was removed so GPCLK0 signal can be fed as the MCLK to ensure MCLK and I2S BCLK are synchronous. This was done after I discovered both clocks were drifting, causing clicks on the audio input.
 
-Connect the mbed AudioCodec to the Pi I2S header:
+Connection between the mbed AudioCodec and the Raspberry Pi:
 
 ```
 mbed AudioCodec   |     Raspberry Pi
@@ -109,7 +107,7 @@ The I2C pins are used for configuring the codec.
 
 I made my own mic front-end circuit, but I recommend one with automatic gain.
 
-This is my mic resistor network.
+You can use this mic resistor network but the input gain is not high enough even with the 20dB gain enabled on the TLV320AIC23B.
 
 ![mic resistor network](https://github.com/jasaw/bbPiCam/blob/master/docs/mic_circuit.png)
 
@@ -119,11 +117,11 @@ Adjust the R1 resistor to set the gain.
 
 ### RGB Temperature LED
 
-RGB LED is controlled by PCA9635 driver.
+RGB LED is controlled by PCA9635 driver. There are other more suitable LED driver alternatives. I chose this part because I have left over from another project.
 
 ![mic resistor network](https://github.com/jasaw/bbPiCam/blob/master/docs/pca9635.png)
 
-## Software
+# Software
 
 Before we start, you'll need a Linux based Raspberry Pi Operating System. I strongly recommend Raspbian unless you know what you are doing. I use Raspbian Wheezy 2014-06-20.
 
@@ -136,7 +134,7 @@ git submodule init
 git submodule update
 ```
 
-This is going to take a while, so go do other things and come back later...
+This is going to take a while, so go do other things and come back later ...
 
 Now apply patches.
 
@@ -156,4 +154,355 @@ Enable I2C and Camera on the Pi. On the Pi, run:
 sudo raspi-config
 ```
 
+### Kernel and Drivers
+
+The kernel needs to be configured and cross compiled, then transfered to the Pi.
+
+Change into the kernel directory and set things up:
+```
+cd kernel
+mkdir modules
+```
+
+**Important**: Edit the build_env file to reflect your directory structure.
+
+Load environment variables:
+```
+. build_env
+```
+
+Clean up
+```
+cd linux
+make mrproper
+```
+
+Get kernel config from Pi running Raspbian. On the Pi, run:
+```
+zcat /proc/config.gz > /tmp/.config
+```
+
+Copy .config file to linux directory:
+```
+scp pi@rpi-cam:/tmp/.config ./linux
+```
+
+Restore the kernel config, then configure it:
+```
+make oldconfig
+make menuconfig
+```
+
+Enable rpi_mbed under:
+```
+   Device Drivers
+     > Sound card support
+       > Advanced Linux Sound Architecture
+         > ALSA for SoC audio support
+           > SoC Audio support for the Broadcom BCM2708 I2S module
+```
+
+Enable PCA9635 LED driver:
+```
+   Device Drivers
+     > LED support
+       > LED support for PCA9635 I2C chip
+```
+
+Compile kernel
+```
+make -j4
+```
+
+Install kernel modules
+```
+make modules_install
+```
+
+Create kernel.img from zImage
+```
+cd ../tools/mkimage
+./imagetool-uncompressed.py ${KERNEL_SRC}/arch/arm/boot/zImage
+cd ../..
+```
+
+Remove symlinks in modules directory:
+```
+rm modules/lib/modules/3.12.28/build modules/lib/modules/3.12.28/source
+tar czf modules.tar.gz modules/
+```
+
+Copy kernel.img and modules to the Pi
+```
+scp tools/mkimage/kernel.img pi@rpi-cam:/tmp
+scp modules.tar.gz pi@rpi-cam:/tmp
+```
+
+Replace the kernel on the Pi. On the Pi, run:
+```
+cd /boot
+sudo mv kernel.img kernel.img.org
+sudo mv /tmp/kernel.img .
+cd /tmp
+tar xzf modules.tar.gz
+cd /lib
+sudo mv modules modules_org
+sudo mv /tmp/modules/lib/modules /lib
+sudo chown -R root:root /lib/modules
+```
+
+add below lines to /etc/modules
+```
+snd_soc_bcm2708
+snd_soc_bcm2708_i2s
+bcm2708_dmaengine
+snd_soc_tlv320aic23
+snd_soc_rpi_mbed
+```
+
+Reboot the Pi
+```
+sudo reboot
+```
+
+If your Pi survived the reboot, you should be able to see the audio card:
+```
+arecord -L
+```
+
+If you can't see the audio card, try probing it on the I2C bus:
+```
+sudo modprobe i2c-dev
+sudo apt-get install i2c-tools
+sudo i2cdetect 1
+```
+It should have I2C address of 0x1b.
+
+Test to see if it works:
+```
+alsamixer -c 1
+arecord -D hw:1,0 -f DAT -r 8 /tmp/my_record.wav
+```
+
+The audio card can also be configured this way:
+```
+amixer -c 1 sset 'Mic' cap
+amixer -c 1 sset 'Mic Input' on
+amixer -c 1 sset 'Mic Booster' on
+```
+
+### Libraries and Dependencies
+
+We need to set up libraries and dependencies on the Pi. On the Pi, run ...
+
+Install tools and libraries.
+```
+sudo apt-get install build-essential
+sudo apt-get install autotools-dev autoconf automake libtool
+sudo apt-get install libasound2-dev
+```
+
+**Note**: All libraries and tools can be cross compiled on a PC and transfered to the Pi. For simplicity, we compile them on the Pi.
+
+Build and install x264 library.
+```
+git clone git://git.videolan.org/x264
+cd x264
+./configure --disable-asm --enable-shared
+make
+sudo make install
+```
+
+Build and install lame encoder.
+```
+wget http://downloads.sourceforge.net/project/lame/lame/3.99/lame-3.99.5.tar.gz
+tar xzf lame-3.99.5.tar.gz
+cd lame-3.99.5
+./configure
+make
+sudo make install
+```
+
+Build and install AAC encoder.
+```
+wget http://downloads.sourceforge.net/project/faac/faac-src/faac-1.28/faac-1.28.tar.gz
+tar xzf faac-1.28.tar.gz
+cd faac-1.28
+./configure
+make
+sudo make install
+```
+
+Build and install the latest ffmpeg. At the time of this writing, the Raspbian version is too old and doesn't support H264.
+On PC:
+```
+scp -r programs/ffmpeg pi@rpi-cam:
+```
+On Pi:
+```
+cd ffmpeg
+./configure --enable-shared --enable-gpl --prefix=/usr --enable-nonfree --enable-libmp3lame --enable-libfaac --enable-libx264 --enable-version3 --disable-mmx
+make
+sudo make install
+```
+
+### Enable RTSP and RTMP streaming
+
+Install crtmpserver
+```
+sudo apt-get install crtmpserver
+```
+
+Edit the below section of /etc/crtmpserver/applications/flvplayback.lua
+```
+validateHandshake=false,
+keyframeSeek=false,
+seekGranularity=0.1
+clientSideBuffer=30
+```
+
+Restart crtmpserver
+```
+sudo service crtmpserver restart
+```
+
+Install nginx web server
+```
+sudo apt-get install nginx
+sudo server nginx start
+```
+
+Copy web server files
+On PC:
+```
+cd programs/crtmpserver
+unzip jwplayer-6.10.zip
+scp -r jwplayer pi@rpi-cam:/usr/share/nginx/www
+scp index.rtsp.html pi@rpi-cam:/usr/share/nginx/www/index.html
+```
+
+Restart nginx
+```
+sudo server nginx restart
+```
+
+Copy start up scripts.
+On PC:
+```
+scp programs/bbpicam pi@rpi-cam:
+scp programs/bbpicam_stream pi@rpi-cam:
+```
+On Pi:
+```
+sudo mkdir /opt/bbpicam
+sudo cp -f bbpicam_stream /opt/bbpicam/bbpicam_stream
+sudo cp -f bbpicam /etc/init.d/bbpicam
+sudo chown root:root /etc/init.d/bbpicam
+sudo service bbpicam start
+```
+
+Start audio video stream automatically at boot:
+```
+sudo insserv bbpicam
+```
+
+### RGB Temperature LED
+
+Transfer required software to the Pi.
+On PC:
+```
+scp -r programs/hidapi pi@rpi-cam:
+scp -r programs/TEMPered pi@rpi-cam:
+scp programs/temper2led_init pi@rpi-cam:
+```
+
+On Pi, install the dependencies.
+```
+sudo apt-get install libudev-dev libusb-1.0-0-dev libusb-dev
+```
+
+Build HIDAPI library.
+```
+cd hidapi
+./bootstrap
+./configure
+make
+cd -
+```
+
+Build TEMPered.
+```
+cd TEMPered
+cmake .
+make
+cd -
+```
+
+Find the TEMPer device
+```
+TEMPered/examples/enumerate
+```
+
+Install TEMPer 2 LED
+```
+sudo mkdir /opt/temper2led
+sudo cp -f TEMPered/examples/temper2led /opt/temper2led/temper2led
+sudo cp -f temper2led_init /etc/init.d/temper2led_init
+sudo chown root:root /etc/init.d/temper2led_init
+sudo service temper2led_init start
+```
+
+Start TEMPer 2 LED automatically at boot:
+```
+sudo insserv temper2led_init
+```
+
+### HLS (alternative)
+
+HLS is short for HTTP Live Streaming. HLS is implemented by Apple and only works well on Apple devices and Safari browser.
+HLS support on non-Apple devices or browsers:
+- Android : Broken on most devices. At best unreliable.
+- Firefox : Not supported.
+- Chrome : Not supported.
+- VLC : Works but does not automatically reload the playlist.
+
+HLS also has the disadvantage of high latency, which is unacceptable as a baby monitor.
+
+To switch to HLS protocol, try:
+```
+cd psips
+make
+make install
+mkfifo /tmp/live.h264
+raspivid -w 1280 -h 960 -fps 25 -t 0 -b 2400000 -o - | psips > /tmp/live.h264 &
+sudo LD_LIBRARY_PATH=/usr/local/lib ffmpeg -y -re -fflags +nobuffer -i /tmp/live.h264 -fflags +nobuffer -re -f alsa -ar 16000 -ac 2 -i hw:1,0 -map 0:0 -map 1:0 -c:v copy -strict -2 -c:a aac -b:a 32k -ac 1 -af "pan=1c|c0=c1" -f ssegment -segment_time 5 -segment_format mpegts -segment_list "/usr/share/nginx/www/live.m3u8" -segment_wrap 2 -segment_list_size 2 -segment_list_entry_prefix "live/" -segment_list_flags live -segment_list_type m3u8 "live/%08d.ts"
+```
+
+You also need to adjust /usr/share/nginx/www/index.html to serve the m3u8 playlist.
+
+### Multicast (alternative)
+
+Be very careful when multicasting. If your switch does **not** support IGMP snooping, it **will** flood your network and may cause significant impact on your throughput.
+
+If you still want to try multicasting:
+```
+cd psips
+make
+make install
+mkfifo /tmp/live.h264
+raspivid -w 1280 -h 960 -fps 25 -t 0 -b 2400000 -o - | psips > live.h264 &
+LD_LIBRARY_PATH=/usr/local/lib ffmpeg -y -v debug -re -fflags +nobuffer -r 25.126 -i /home/pi/live.h264 -fflags +nobuffer -re -f alsa -ar 16000 -ac 2 -i hw:1,0 -map 0:0 -map 1:0 -c:v copy -strict -2 -c:a aac -b:a 32k -ac 1 -af "pan=1c|c0=c1" -f mpegts 'udp://239.255.255.100:1234?ttl=4&pkt_size=1400'
+```
+
+### Motion (alternative for running security camera with motion detection)
+
+[Motion](http://www.lavrsen.dk/foswiki/bin/view/Motion/WebHome) is a program that monitors the video signal from cameras and detect motion. It includes a web server that serves the video feed as MJPEG and able to capture and save images when motion is detected.
+
+Install motion dependencies
+```
+sudo apt-get install libav-tools libavcodec54 libavdevice53 libavfilter2 libavfilter3 libavformat54 libavresample1 libavutil52 libdc1394-22 libmysqlclient18 libopencore-amrnb0 libopencore-amrwb0 libopencv-core2.3 libopencv-core2.4 libopencv-imgproc2.3 libopencv-imgproc2.4 libopus0 libpq5 libraw1394-11 libvo-aacenc0 libvo-amrwbenc0 libx264-130 mysql-common
+sudo apt-get install libjpeg62 libjpeg62-dev libavformat53 libavformat-dev libavcodec53 libavcodec-dev libavutil51 libavutil-dev libc6-dev zlib1g-dev libmysqlclient18 libmysqlclient-dev libpq5 libpq-dev
+```
+
+Get pre-compiled motion binary and sample configuration file from programs/motion-mmal-opt.tar.gz
 
