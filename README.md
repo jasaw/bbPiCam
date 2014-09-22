@@ -463,13 +463,14 @@ sudo insserv temper2led_init
 ### HLS (alternative)
 
 HLS is short for HTTP Live Streaming. HLS is implemented by Apple and only works well on Apple devices and Safari browser.
+
 HLS support on non-Apple devices or browsers:
 - Android : Broken on most devices. At best unreliable.
 - Firefox : Not supported.
 - Chrome : Not supported.
 - VLC : Works but does not automatically reload the playlist.
 
-HLS also has the disadvantage of high latency, which is unacceptable as a baby monitor.
+HLS also has the disadvantage of high latency, which is unacceptable for a baby monitor.
 
 To switch to HLS protocol, try:
 ```
