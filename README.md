@@ -424,6 +424,11 @@ On Pi, install the dependencies.
 sudo apt-get install libudev-dev libusb-1.0-0-dev libusb-dev
 ```
 
+add below line to /etc/modules
+```
+leds-pca9635
+```
+
 Build HIDAPI library.
 ```
 cd hidapi
