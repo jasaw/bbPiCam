@@ -411,6 +411,11 @@ If you want to play the stream from an Android device, try "RTSP Player" app.
 
 ### RGB Temperature LED
 
+The purpose of this RGB LED is to give a quick visual feedback of the room temperature.
+* Blue - lower than 18 degrees Celcius
+* Green - 22 degrees Celcius
+* Red - higher than 26 degrees Celcius
+
 Transfer required software to the Pi.
 On PC:
 ```
