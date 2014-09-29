@@ -472,6 +472,9 @@ sudo insserv temper2led_init
 
 ### Shutdown Button watcher
 
+The "Shutdown" button does the obvious, shuts down the device when pressed.
+Button is connected to P1-11 and pulled up to 3.3V via 10K resistor.
+
 Transfer shutdown_button to the Pi.
 On PC:
 ```
