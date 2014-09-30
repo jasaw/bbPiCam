@@ -5,11 +5,11 @@ Raspberry Pi Baby Monitor.
 
 Features:
 * True day and night vision.
-* HD video quality.
+* 1280 x 960 HD video quality.
 * RGB LED shows temperature at a quick glance.
-* RTSP & RTMP audio video stream.
+* RTSP & RTMP audio video stream (playable on web browsers and Android devices).
 
-![Image of bbPiCam](https://github.com/jasaw/bbPiCam/blob/master/docs/bbPiCam_mini.png)
+![Image of bbPiCam](https://github.com/jasaw/bbPiCam/blob/master/docs/bbPiCam_mini.jpg)
 
 ![Day view](https://github.com/jasaw/bbPiCam/blob/master/docs/day.jpg)
 
@@ -32,9 +32,9 @@ Setting up the hardware requires a fair bit of soldering and drilling. Let's get
 * CS Mount Dual IR-Cut Optical Filter for CCTV CMOS Board Camera - http://www.camera2000.com/en/cs-mount-dual-ir-cut-optical-filter-for-cctv-cmos-board-camera.html
 * IR Light Board for CCTV Camera Housing - http://www.camera2000.com/en/24-leds-45deg-25m-view-ir-light-board-for-dia-60mm-camera-housing.html
 * PCA9635 LED controller
-* 12V DC power supply
-* Tactile button
-* Mountable DC barrel connector
+* 12V DC 1A regulated power adaptor
+* Panel Mount Tactile Pushbutton
+* Panel Mount 2.5mm Bulkhead Male DC Power Connector
 * Enclosure
 * Heatshrink
 
@@ -77,7 +77,7 @@ Modifications made to the mbed AudioCodec board:
 * MIC Bias (pin 17) and MIC Input (pin 18) of the IC are not exposed on a connector. Wires were soldered from the 2 MIC and GND pins of the IC to the unused side of the header.
 * The 12MHz crystal was removed and MCLK (pin 25) and wires soldered from the MCLK pin to an unused header pin.
 
-The crystal was removed so GPCLK0 signal can be fed as the MCLK to ensure MCLK and I2S BCLK are synchronous. This was done after I discovered both clocks were drifting, causing clicks on the audio input.
+The crystal was removed so GPCLK0 signal can be fed as the MCLK to ensure MCLK and I2S BCLK are synchronous. This was done after I discovered both clocks were drifting, causing clicks on the 1st channel of the audio input. I did not manage to remove the clicking noise completely, so I ended up configuring ffmpeg to only use channel 2 and output mono audio.
 
 Connection between the mbed AudioCodec and the Raspberry Pi:
 
@@ -121,7 +121,19 @@ RGB LED is controlled by PCA9635 driver. There are other more suitable LED drive
 
 ![mic resistor network](https://github.com/jasaw/bbPiCam/blob/master/docs/pca9635.png)
 
+### Shutdown Button
+
+The "Shutdown" button does the obvious, shuts down the device when pressed.
+
+Button is connected to P1-11 and pulled up to 3.3V via 10K resistor.
+
+![shutdown button](https://github.com/jasaw/bbPiCam/blob/master/docs/reset_button.png)
+
 # Software
+
+Software modifications I've done so far:
+* I2S and rpi_mbed drivers to use GPCLK0 as MCLK.
+* Reduced the ffmpeg's default max_interleave_delta value. By default, ffmpeg buffers both audio and video stream in attempt to synchronize them, but ffmpeg is unable to synchronize the streams because raspivid video output does not contain timestamp information. By reducing the max_interleave_delta value, the de-sync between audio and video can be reduced. The only problem is, setting max_interleave_delta from command line did not do anything, so I just changed the default value as a quick workaround.
 
 Before we start, you'll need a Linux based Raspberry Pi Operating System. I strongly recommend Raspbian unless you know what you are doing. I use Raspbian Wheezy 2014-06-20.
 
@@ -472,9 +484,6 @@ sudo insserv temper2led_init
 
 ### Shutdown Button watcher
 
-The "Shutdown" button does the obvious, shuts down the device when pressed.
-Button is connected to P1-11 and pulled up to 3.3V via 10K resistor.
-
 Transfer shutdown_button to the Pi.
 On PC:
 ```
@@ -553,3 +562,12 @@ sudo apt-get install libjpeg62 libjpeg62-dev libavformat53 libavformat-dev libav
 Get pre-compiled motion binary and sample configuration file from programs/motion-mmal-opt.tar.gz
 
 Run motion and point your browser to http://rpi-cam:8081
+
+# Improvements?
+
+This is very much a prototype with breakout boards stuck together using cable ties and sticky tape. The enclosure is way too big as well.
+If I have more time, I certainly would like to improve a few things:
+* Bigger IR Light board. The current circular IR Light board is slightly too small and blocking the corners of the view.
+* Custom designed PCB that plugs onto the Pi's P1 and P5 headers, to replace all the breakout boards.
+* 3D printed enclosure.
+
