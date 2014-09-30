@@ -1,6 +1,6 @@
-commit 31d384ed69d0a79dadd1c5fd389ab2ae2d5ed93b
+commit 2758de4d99a8bdba3b98b43b676fcf323de84765
 Author: Joo Aun Saw <jasaw@dius.com.au>
-Date:   Fri Sep 19 17:18:48 2014 +1000
+Date:   Tue Sep 30 12:55:48 2014 +1000
 
     Add temper2led.
 
@@ -17,16 +17,17 @@ index 069f815..972534e 100644
 +target_link_libraries(temper2led ${TEMPERED_LIB} ${HIDAPI_LINK_LIBS} -lm)
 diff --git a/examples/temper2led.c b/examples/temper2led.c
 new file mode 100644
-index 0000000..5ee9211
+index 0000000..aa02308
 --- /dev/null
 +++ b/examples/temper2led.c
-@@ -0,0 +1,482 @@
+@@ -0,0 +1,491 @@
 +#include <stdlib.h>
 +#include <stdio.h>
 +#include <unistd.h>
 +#include <string.h>
 +#include <ctype.h>
 +#include <sys/stat.h>
++#include <libgen.h>
 +#include <fcntl.h>
 +#include <math.h>
 +#include <signal.h>
@@ -48,8 +49,8 @@ index 0000000..5ee9211
 +static const char *progname = "";
 +static const char *temper_path = "/dev/hidraw1";
 +static const char *ledctrl_path = "/sys/bus/i2c/devices/1-0007";
-+static const char *temperature_output_path = "/tmp/RDing_TEMPer2_out";
-+static int poll_rate = 5;
++static const char *temperature_output_path = "/run/temper2led/RDing_TEMPer2_out";
++static int poll_rate = 1;
 +
 +#define min(a,b) ( (a < b) ? a : b )
 +#define max(a,b) ( (a > b) ? a : b )
@@ -470,6 +471,14 @@ index 0000000..5ee9211
 +				syntax();
 +				break;
 +		}
++	}
++
++	if (temperature_output_path != NULL)
++	{
++		char *tmp = strdup(temperature_output_path);
++		char *dir = dirname(tmp);
++		mkdir(dir, 0755);
++		free(tmp);
 +	}
 +
 +	if (init_led() != 0)
