@@ -575,6 +575,7 @@ Please refer to its BUILD-HOWTO file for build instructions.
 
 This is very much a prototype with breakout boards stuck together using cable ties and sticky tape. The enclosure is way too big as well.
 If I have more time, I certainly would like to improve a few things:
+* Add a speaker for playing lullabies and enable 2-way audio comms.
 * Bigger IR Light board. The current circular IR Light board is slightly too small and blocking the corners of the view.
 * Custom designed PCB that plugs onto the Pi's P1 and P5 headers, to replace all the breakout boards.
 * 3D printed enclosure.
