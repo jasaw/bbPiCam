@@ -556,12 +556,20 @@ LD_LIBRARY_PATH=/usr/local/lib ffmpeg -y -v debug -re -fflags +nobuffer -r 25.12
 Install motion dependencies
 ```
 sudo apt-get install libav-tools libavcodec54 libavdevice53 libavfilter2 libavfilter3 libavformat54 libavresample1 libavutil52 libdc1394-22 libmysqlclient18 libopencore-amrnb0 libopencore-amrwb0 libopencv-core2.3 libopencv-core2.4 libopencv-imgproc2.3 libopencv-imgproc2.4 libopus0 libpq5 libraw1394-11 libvo-aacenc0 libvo-amrwbenc0 libx264-130 mysql-common
-sudo apt-get install libjpeg62 libjpeg62-dev libavformat53 libavformat-dev libavcodec53 libavcodec-dev libavutil51 libavutil-dev libc6-dev zlib1g-dev libmysqlclient18 libmysqlclient-dev libpq5 libpq-dev
 ```
 
 Get pre-compiled motion binary and sample configuration file from programs/motion-mmal-opt.tar.gz
 
 Run motion and point your browser to http://rpi-cam:8081
+
+If you want to compile your own motion software, install devel libraries, git clone the Raspberry Pi motion-mmal repository:
+```
+sudo apt-get install libjpeg62 libjpeg62-dev libavformat53 libavformat-dev libavcodec53 libavcodec-dev libavutil51 libavutil-dev libc6-dev zlib1g-dev libmysqlclient18 libmysqlclient-dev libpq5 libpq-dev
+git clone https://github.com/dozencrows/motion.git motion-mmal
+cd motion-mmal
+git checkout mmal-test
+```
+Please refer to its BUILD-HOWTO file for build instructions.
 
 # Improvements?
 
