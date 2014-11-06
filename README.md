@@ -166,6 +166,11 @@ Enable I2C and Camera on the Pi. On the Pi, run:
 sudo raspi-config
 ```
 
+### Install build tools
+```
+sudo apt-get install build-essential
+```
+
 ### Kernel and Drivers
 
 The kernel needs to be configured and cross compiled, then transfered to the Pi.
