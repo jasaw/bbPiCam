@@ -6,9 +6,9 @@ sleep 10
 
 FIFO=/tmp/live.h264
 
-#raspivid -w 1280 -h 960 -fps 24 -g 5 -t 0 -b 2400000 -o - | LD_LIBRARY_PATH=/usr/local/lib ffmpeg -fflags +nobuffer -re -i - -fflags +nobuffer -re -f alsa -ar 16000 -ac 2 -i hw:1,0 -map 0:0 -map 1:0 -c:v copy -strict -2 -c:a aac -b:a 32k -ac 1 -af "pan=1c|c0=c1" -f rtsp -metadata title=bbPiCam rtsp://0.0.0.0:554
+#raspivid -w 1280 -h 960 -fps 24 -g 24 -t 0 -b 600000 -o - | LD_LIBRARY_PATH=/usr/local/lib ffmpeg -fflags +nobuffer -re -i - -fflags +nobuffer -re -f alsa -ar 16000 -ac 2 -i hw:1,0 -map 0:0 -map 1:0 -c:v copy -strict -2 -c:a aac -b:a 16k -ac 1 -af "pan=1c|c0=c1" -f rtsp -metadata title=bbPiCam rtsp://0.0.0.0:554
 
 mkfifo $FIFO
-raspivid -w 1280 -h 960 -fps 24 -g 5 -t 0 -b 2400000 -o $FIFO &
+raspivid -w 1280 -h 960 -fps 24 -g 24 -t 0 -b 600000 -o $FIFO &
 export LD_LIBRARY_PATH=/usr/local/lib
-exec ffmpeg -fflags +nobuffer -re -i $FIFO -fflags +nobuffer -re -f alsa -ar 16000 -ac 2 -i hw:1,0 -map 0:0 -map 1:0 -c:v copy -strict -2 -c:a aac -b:a 32k -ac 1 -af "pan=1c|c0=c1" -f rtsp -metadata title=bbPiCam rtsp://0.0.0.0:554
+exec ffmpeg -fflags +nobuffer -re -i $FIFO -fflags +nobuffer -re -f alsa -ar 16000 -ac 2 -i hw:1,0 -map 0:0 -map 1:0 -c:v copy -strict -2 -c:a aac -b:a 16k -ac 1 -af "pan=1c|c0=c1" -f rtsp -metadata title=bbPiCam rtsp://0.0.0.0:554
