@@ -236,10 +236,17 @@ Install kernel modules
 make modules_install
 ```
 
-Create kernel.img from zImage
+Create kernel.img from zImage (for Pi Model A & B)
 ```
 cd ../tools/mkimage
 ./imagetool-uncompressed.py ${KERNEL_SRC}/arch/arm/boot/zImage
+cd ../..
+```
+
+Create kernel7.img from zImage (for Pi Model A+, B+, 2 B)
+```
+cd ../tools/mkimage
+./mkknlimg ${KERNEL_SRC}/arch/arm/boot/zImage kernel7.img
 cd ../..
 ```
 
