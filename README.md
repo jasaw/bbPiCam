@@ -201,7 +201,7 @@ zcat /proc/config.gz > /tmp/.config
 
 Copy .config file to linux directory:
 ```
-scp pi@rpi-cam:/tmp/.config ./linux
+scp pi@rpi-cam:/tmp/.config ./.config
 ```
 
 Restore the kernel config, then configure it:
