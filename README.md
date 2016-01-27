@@ -74,7 +74,7 @@ The I2S signals are exposed via P5 header, next to the P1 header. Solder a heade
 As for the audio codec, I used the mbed AudioCodec board based on TI TLV320AIC23B. I had to make a few modifications to the board, which may not suit everyone. Those who are not comfortable with soldering can explore other codecs like the PROTO audio codec board based on WM8731. This [I2S guide](http://blog.koalo.de/2013/05/i2s-support-for-raspberry-pi.html) by Koalo may be helpful.
 
 Modifications made to the mbed AudioCodec board:
-* MIC Bias (pin 17) and MIC Input (pin 18) of the IC are not exposed on a connector. Wires were soldered from the 2 MIC and GND pins of the IC to the unused side of the header.
+* MIC Bias (pin 17) and MIC Input (pin 18) of the IC are not exposed on a connector. Wires were soldered from the 2 MIC and GND pins of the IC to the unused side of the header. ![mbed audio codec mod](https://github.com/jasaw/bbPiCam/blob/master/docs/mbed-codec-mods.jpg)
 * The 12MHz crystal was removed and MCLK (pin 25) and wires soldered from the MCLK pin to an unused header pin.
 
 The crystal was removed so GPCLK0 signal can be fed as the MCLK to ensure MCLK and I2S BCLK are synchronous. This was done after I discovered both clocks were drifting, causing clicks on the 1st channel of the audio input. I did not manage to remove the clicking noise completely, so I ended up configuring ffmpeg to only use channel 2 and output mono audio.
