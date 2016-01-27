@@ -82,7 +82,7 @@ Modifications made to the mbed AudioCodec board:
 
 The crystal was removed so GPCLK0 signal can be fed as the MCLK to ensure MCLK and I2S BCLK are synchronous. This was done after I discovered both clocks were drifting, causing clicks on the 1st channel of the audio input. I did not manage to remove the clicking noise completely, so I ended up configuring ffmpeg to only use channel 2 and output mono audio.
 
-Connection between the mbed AudioCodec and the Raspberry Pi:
+Connection between the mbed AudioCodec and the Raspberry Pi B:
 
 ```
 mbed AudioCodec   |     Raspberry Pi
@@ -92,6 +92,24 @@ mbed AudioCodec   |     Raspberry Pi
     DIN    (I2S)  |       P5 - 06
     DOUT   (I2S)  |       P5 - 05
     LRCOUT (I2S)  |       P5 - 04
+    MODE          |       GND
+                  |
+    SCLK   (I2C)  |       P1 - 05
+    SDIN   (I2C)  |       P1 - 03
+                  |
+    MCLK          |       GPCLK0
+```
+
+If using Raspberry Pi B+ or Pi2 B:
+
+```
+mbed AudioCodec   |     Raspberry Pi
+----------------- +---------------------
+    BCLK   (I2S)  |       J8 - 12
+    CS            |       3V3
+    DIN    (I2S)  |       J8 - 40
+    DOUT   (I2S)  |       J8 - 38
+    LRCOUT (I2S)  |       J8 - 35
     MODE          |       GND
                   |
     SCLK   (I2C)  |       P1 - 05
@@ -134,11 +152,15 @@ Button is connected to P1-11 and pulled up to 3.3V via 10K resistor.
 
 # Software
 
+This guide only applies to Raspberry Pi B.
+
 Software modifications I've done so far:
 * I2S and rpi_mbed drivers to use GPCLK0 as MCLK.
 * Reduced the ffmpeg's default max_interleave_delta value. By default, ffmpeg buffers both audio and video stream in attempt to synchronize them, but ffmpeg is unable to synchronize the streams because raspivid video output does not contain timestamp information. By reducing the max_interleave_delta value, the de-sync between audio and video can be reduced. The only problem is, setting max_interleave_delta from command line did not do anything, so I just changed the default value as a quick workaround.
 
 Before we start, you'll need a Linux based Raspberry Pi Operating System. I strongly recommend Raspbian unless you know what you are doing. I use Raspbian Wheezy 2014-06-20.
+
+_If you're using model B+ or 2 B, I recommend the latest Raspbian Jessie image with device-tree enabled. You can load the I2S driver by adding dtoverlay=i2s-mmap to /boot/config.txt. I haven't got time to migrate this project to the Pi2, so you'll have to figure the rest out yourself. Sorry..._
 
 While waiting for the Raspbian installation onto an SD card, we download the required software on a PC.
 
