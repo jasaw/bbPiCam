@@ -74,7 +74,7 @@ The I2S signals are exposed via P5 header, next to the P1 header. Solder a heade
 As for the audio codec, I used the mbed AudioCodec board based on TI TLV320AIC23B. I had to make a few modifications to the board, which may not suit everyone. Those who are not comfortable with soldering can explore other codecs like the PROTO audio codec board based on WM8731. This [I2S guide](http://blog.koalo.de/2013/05/i2s-support-for-raspberry-pi.html) by Koalo may be helpful.
 
 Modifications made to the mbed AudioCodec board:
-* MIC Bias (pin 17) and MIC Input (pin 18) of the IC are not exposed on a connector. Wires were soldered from the 2 MIC and GND pins of the IC to the unused side of the header.
+* MIC Bias (pin 17) and MIC Input (pin 18) of the IC are not exposed on a connector, so I soldered wires from the MIC BIAS and MIC IN pins to the unused header. I also soldered a wire from the GND via to the unused header.
 
 ![mbed audio codec mod](https://github.com/jasaw/bbPiCam/blob/master/docs/mbed-codec-mods.jpg)
 
